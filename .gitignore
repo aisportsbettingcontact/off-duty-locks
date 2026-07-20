@@ -7,3 +7,4 @@ dist/
 build/
 data/tmp/
 .coverage
+qa/verify-report.json
