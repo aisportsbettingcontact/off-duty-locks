@@ -1,0 +1,145 @@
+{
+  "_provenance": {
+    "synthetic": true,
+    "capturedAtUtc": null,
+    "describedBy": "docs/source-contract.md",
+    "notes": "Synthetic, schema-exact replica of https://stats.wnba.com/stats/commonteamyears?LeagueID=10 \u2014 the authoritative-team-set endpoint. Contains all 15 reference teams (fixtures/teams-2026-reference.json) active through 2026 PLUS two defunct franchises (Houston Comets, Sacramento Monarchs; MAX_YEAR < 2026): consumers MUST filter rows to int(MAX_YEAR) >= season to derive the active-team set. MIN_YEAR/MAX_YEAR are strings on the wire; TEAM_ID is a number. This endpoint carries no team display names \u2014 canonical names come from the TEAM_NAME column of leaguedashteamstats (see docs/source-contract.md section 4.3)."
+  },
+  "resource": "commonteamyears",
+  "parameters": {
+    "LeagueID": "10"
+  },
+  "resultSets": [
+    {
+      "name": "TeamYears",
+      "headers": [
+        "LEAGUE_ID",
+        "TEAM_ID",
+        "MIN_YEAR",
+        "MAX_YEAR",
+        "ABBREVIATION"
+      ],
+      "rowSet": [
+        [
+          "10",
+          1611661313,
+          "1997",
+          "2026",
+          "NYL"
+        ],
+        [
+          "10",
+          1611661316,
+          "1997",
+          "2008",
+          "HOU"
+        ],
+        [
+          "10",
+          1611661317,
+          "1997",
+          "2026",
+          "PHO"
+        ],
+        [
+          "10",
+          1611661318,
+          "1997",
+          "2009",
+          "SAC"
+        ],
+        [
+          "10",
+          1611661319,
+          "1997",
+          "2026",
+          "LVA"
+        ],
+        [
+          "10",
+          1611661320,
+          "1997",
+          "2026",
+          "LAS"
+        ],
+        [
+          "10",
+          1611661321,
+          "1998",
+          "2026",
+          "DAL"
+        ],
+        [
+          "10",
+          1611661322,
+          "1998",
+          "2026",
+          "WAS"
+        ],
+        [
+          "10",
+          1611661323,
+          "1999",
+          "2026",
+          "CON"
+        ],
+        [
+          "10",
+          1611661324,
+          "1999",
+          "2026",
+          "MIN"
+        ],
+        [
+          "10",
+          1611661325,
+          "2000",
+          "2026",
+          "IND"
+        ],
+        [
+          "10",
+          1611661328,
+          "2000",
+          "2026",
+          "SEA"
+        ],
+        [
+          "10",
+          1611661329,
+          "2006",
+          "2026",
+          "CHI"
+        ],
+        [
+          "10",
+          1611661330,
+          "2008",
+          "2026",
+          "ATL"
+        ],
+        [
+          "10",
+          1611661331,
+          "2025",
+          "2026",
+          "GSV"
+        ],
+        [
+          "10",
+          1611661332,
+          "2026",
+          "2026",
+          "TOR"
+        ],
+        [
+          "10",
+          1611661333,
+          "2026",
+          "2026",
+          "POR"
+        ]
+      ]
+    }
+  ]
+}
