@@ -1,0 +1,26 @@
+{
+  "_provenance": {
+    "synthetic": true,
+    "capturedAtUtc": null,
+    "describedBy": "docs/source-contract.md",
+    "notes": "Pinned reference team set for the 2026 WNBA season used by ALL synthetic fixtures so they stay mutually consistent. Franchise IDs for the 12 legacy teams are the well-known stats-platform team IDs; Golden State (2025 expansion), Toronto and Portland (2026 expansion) IDs are PLACEHOLDERS pending live verification via the live-smoke workflow. Never treat this file as authoritative in production - the expected-team set is resolved dynamically from the official source."
+  },
+  "season": "2026",
+  "teams": {
+    "1611661313": "New York Liberty",
+    "1611661317": "Phoenix Mercury",
+    "1611661319": "Las Vegas Aces",
+    "1611661320": "Los Angeles Sparks",
+    "1611661321": "Dallas Wings",
+    "1611661322": "Washington Mystics",
+    "1611661323": "Connecticut Sun",
+    "1611661324": "Minnesota Lynx",
+    "1611661325": "Indiana Fever",
+    "1611661328": "Seattle Storm",
+    "1611661329": "Chicago Sky",
+    "1611661330": "Atlanta Dream",
+    "1611661331": "Golden State Valkyries",
+    "1611661332": "Toronto Tempo",
+    "1611661333": "Portland Fire"
+  }
+}

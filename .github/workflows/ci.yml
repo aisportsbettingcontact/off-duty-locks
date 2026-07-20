@@ -1,0 +1,70 @@
+name: CI
+
+# The required status check for branch protection is literally named "CI"
+# (this workflow's single job below is named "CI"). Runs fully offline: the
+# unit suite and the end-to-end fixture run never touch the network, so CI is
+# deterministic and does not depend on stats.wnba.com being reachable.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  CI:
+    name: CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: python -m pip install --upgrade pip && pip install -e ".[dev]"
+
+      - name: Unit + integration tests (offline)
+        # `python -m pytest` (not bare `pytest`) so the repo root is on sys.path
+        # and the `tests` package imports regardless of runner setup.
+        run: python -m pytest -q
+
+      - name: Independent verification harness
+        run: python3 qa/verify.py --repo-root .
+
+      - name: End-to-end fixture run is idempotent (offline)
+        run: |
+          set -euo pipefail
+          FIXTURE=""
+          for f in fixtures/sanitized/leaguedashteamstats_2026_lastn7.json \
+                   fixtures/sanitized/leaguedashteamstats*.json; do
+            if [ -f "$f" ]; then FIXTURE="$f"; break; fi
+          done
+          if [ -z "$FIXTURE" ]; then
+            echo "::error::no sanitized leaguedashteamstats fixture found"; exit 1
+          fi
+          echo "Using fixture: $FIXTURE"
+          ROOT="$(mktemp -d)"
+
+          echo "--- run 1 (expect SUCCESS, exit 0) ---"
+          wnba-pipeline run --fixture "$FIXTURE" --data-root "$ROOT" > run1.json
+          test "$(python3 -c 'import json,sys;print(json.load(open("run1.json"))["status"])')" = "SUCCESS"
+
+          echo "--- run 2 (expect SUCCESS_UNCHANGED, exit 0 — idempotent) ---"
+          wnba-pipeline run --fixture "$FIXTURE" --data-root "$ROOT" > run2.json
+          test "$(python3 -c 'import json,sys;print(json.load(open("run2.json"))["status"])')" = "SUCCESS_UNCHANGED"
+
+          echo "--- exactly one snapshot file written ---"
+          N="$(find "$ROOT/snapshots" -name '*.json' | wc -l | tr -d ' ')"
+          test "$N" = "1" || { echo "::error::expected 1 snapshot, got $N"; exit 1; }
+          echo "E2E idempotency OK"

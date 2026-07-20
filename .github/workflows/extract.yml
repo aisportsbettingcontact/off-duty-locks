@@ -1,0 +1,119 @@
+name: Extract
+
+# Scheduled WNBA last-7-games extraction. Conservative frequency (see
+# docs/compliance.md): one run per day, month-gated to the WNBA season so no
+# polling happens in the offseason. The extractor's own retry/backoff/circuit
+# breaker handle transient upstream issues within a run.
+
+on:
+  schedule:
+    # 10:30 UTC daily, May–October only. WNBA games finish by ~05:30 UTC, so the
+    # last-7 window is settled. Offseason months never trigger a run.
+    - cron: "30 10 * 5-10 *"
+  workflow_dispatch:
+    inputs:
+      season:
+        description: "Season year"
+        required: false
+        default: "2026"
+      last_n_games:
+        description: "Last N games"
+        required: false
+        default: "7"
+
+# Never interleave runs; a slow run must not overlap the next tick.
+concurrency:
+  group: wnba-extract
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # commit accepted snapshots under data/
+  issues: write     # open a pipeline-alert issue on failure
+
+jobs:
+  extract:
+    name: extract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Disable switch: set repository variable PIPELINE_ENABLED=false to pause.
+    if: ${{ vars.PIPELINE_ENABLED != 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: python -m pip install --upgrade pip && pip install -e "."
+
+      - name: Run extraction
+        id: extract
+        run: |
+          set -uo pipefail
+          SEASON="${{ github.event.inputs.season || '2026' }}"
+          LASTN="${{ github.event.inputs.last_n_games || '7' }}"
+          set +e
+          wnba-pipeline run \
+            --season "$SEASON" \
+            --last-n-games "$LASTN" \
+            --data-root "$GITHUB_WORKSPACE/data" > manifest.json
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Run summary
+        if: always()
+        run: |
+          echo "## WNBA extraction run" >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/manifest_summary.py manifest.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload manifest artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-manifest
+          path: manifest.json
+          retention-days: 30
+
+      - name: Commit accepted data (only on success)
+        if: ${{ steps.extract.outputs.exit_code == '0' }}
+        run: |
+          set -euo pipefail
+          RUN_ID="$(python3 -c 'import json;print(json.load(open("manifest.json"))["runId"])')"
+          git config user.name "wnba-pipeline-bot"
+          git config user.email "wnba-pipeline-bot@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "No data changes to commit (idempotent run)."
+          else
+            git commit -m "Extract WNBA team stats: run ${RUN_ID} [skip ci]"
+            git push
+          fi
+
+      - name: Alert on failure
+        if: ${{ steps.extract.outputs.exit_code != '0' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let manifest = {};
+            try { manifest = JSON.parse(fs.readFileSync('manifest.json','utf8')); } catch (e) {}
+            const code = '${{ steps.extract.outputs.exit_code }}';
+            const title = `pipeline-alert: extraction failed (exit ${code})`;
+            const body = [
+              `Extraction run failed with exit code **${code}**.`,
+              '', '```json', JSON.stringify(manifest, null, 2), '```',
+              '', 'See docs/runbook.md for triage by failureReason.'
+            ].join('\n');
+            const label = 'pipeline-alert';
+            const {owner, repo} = context.repo;
+            const existing = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', labels: label });
+            if (existing.data.length > 0) {
+              const n = existing.data[0].number;
+              await github.rest.issues.createComment({owner, repo, issue_number: n, body});
+            } else {
+              await github.rest.issues.create({owner, repo, title, body, labels: [label]});
+            }
