@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       season:
-        description: "Season year"
+        description: "Season year (applies to the live extraction; the contract capture is pinned to 2026)"
         required: false
         default: "2026"
       probe_400:
@@ -46,9 +46,12 @@ jobs:
         id: capture
         run: |
           set -uo pipefail
-          ARGS="--season ${{ github.event.inputs.season || '2026' }}"
+          # The capture script verifies the pinned 2026 source contract
+          # (params, claim registry C01-C17 and reference teams are 2026-scoped),
+          # so it takes no --season. Only --probe-400 is optional.
+          ARGS=""
           if [ "${{ github.event.inputs.probe_400 }}" = "true" ]; then
-            ARGS="$ARGS --probe-400"
+            ARGS="--probe-400"
           fi
           set +e
           python3 scripts/capture_live_contract.py $ARGS
