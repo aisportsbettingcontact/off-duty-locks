@@ -35,7 +35,9 @@ jobs:
         run: python -m pip install --upgrade pip && pip install -e ".[dev]"
 
       - name: Unit + integration tests (offline)
-        run: pytest -q
+        # `python -m pytest` (not bare `pytest`) so the repo root is on sys.path
+        # and the `tests` package imports regardless of runner setup.
+        run: python -m pytest -q
 
       - name: Independent verification harness
         run: python3 qa/verify.py --repo-root .
