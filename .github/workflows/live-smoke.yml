@@ -48,10 +48,12 @@ jobs:
           set -uo pipefail
           # The capture script verifies the pinned 2026 source contract
           # (params, claim registry C01-C17 and reference teams are 2026-scoped),
-          # so it takes no --season. Only --probe-400 is optional.
-          ARGS=""
+          # so it takes no --season. --compat-headers sends the platform hint
+          # headers (x-nba-stats-*) the stats edge needs to answer instead of
+          # stalling; a longer timeout tolerates a slow first response.
+          ARGS="--compat-headers --timeout 60"
           if [ "${{ github.event.inputs.probe_400 }}" = "true" ]; then
-            ARGS="--probe-400"
+            ARGS="$ARGS --probe-400"
           fi
           set +e
           python3 scripts/capture_live_contract.py $ARGS

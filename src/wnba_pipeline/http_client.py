@@ -46,6 +46,21 @@ PUBLIC_BROWSER_HEADERS: dict[str, str] = {
     "Origin": "https://stats.wnba.com",
 }
 
+# Platform hint headers the stats site's own web client sends. STATIC, publicly
+# documented string constants — NOT credentials, NOT secrets, NOT per-user. The
+# stats platform (Akamai edge) often stalls/times out requests that omit these,
+# so they are required in practice for a live response. Kept separate from
+# PUBLIC_BROWSER_HEADERS because their values ("stats"/"true") are common
+# substrings and must not trip log-hygiene checks; header values are never
+# logged regardless.
+STATS_HINT_HEADERS: dict[str, str] = {
+    "x-nba-stats-origin": "stats",
+    "x-nba-stats-token": "true",   # literal constant, not an auth token
+}
+
+# The full public header set sent on every request.
+REQUEST_HEADERS: dict[str, str] = {**PUBLIC_BROWSER_HEADERS, **STATS_HINT_HEADERS}
+
 # HTTP statuses that are worth retrying with backoff.
 RETRYABLE_STATUSES: frozenset[int] = frozenset({500, 502, 503, 504})
 
@@ -256,7 +271,7 @@ def get_json(
                 response = sess.get(
                     url,
                     params=dict(params),
-                    headers=dict(PUBLIC_BROWSER_HEADERS),
+                    headers=dict(REQUEST_HEADERS),
                     timeout=(cfg.connect_timeout_s, cfg.read_timeout_s),
                 )
             except requests.RequestException as exc:
