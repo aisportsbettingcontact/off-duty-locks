@@ -45,6 +45,41 @@ Failures open/append to a single open issue labeled `pipeline-alert`.
   stored, or fixture. Verify `data/teams/<season>.json` or
   `fixtures/expected_teams/<season>.json` exists and is valid.
 
+## Source reachability (datacenter-IP blocking)
+
+**GitHub-hosted runners cannot reliably reach `stats.wnba.com`.** The stats
+platform's edge (Akamai) blocks cloud/datacenter IP ranges — including the Azure
+ranges GitHub Actions runs on. Observed symptoms:
+
+- **Live Smoke** capture exits `4` (upstream unavailable — connection
+  timeout/reset, *not* a clean 403) and/or the extraction exits `3`
+  (`UPSTREAM_UNAVAILABLE`); sometimes an explicit `403` (capture exit `3`).
+- The scheduled **Extract** job hits the same wall and will open recurring
+  `pipeline-alert` issues if run on GitHub-hosted runners.
+
+This is an **egress limitation, not a code defect** — the pipeline correctly
+reports `UPSTREAM_UNAVAILABLE` and preserves last-known-good rather than storing
+empty/fabricated data. No header or code change fixes it; the request must
+originate from a non-blocked IP.
+
+**To run live (verification or production collection), use one of:**
+
+1. **A residential / non-datacenter machine.** Clone the repo and run the
+   capture directly:
+   ```
+   pip install -e .
+   python3 scripts/capture_live_contract.py --compat-headers --timeout 60
+   wnba-pipeline run --data-root ./data      # a real extraction
+   ```
+2. **A self-hosted GitHub Actions runner** on an allowed network. Add
+   `runs-on: [self-hosted]` to `extract.yml` / `live-smoke.yml` and register the
+   runner; the workflows are otherwise unchanged.
+3. **Another scheduled host** (a small VPS/cron on a non-blocked IP) invoking
+   `wnba-pipeline run`, committing/pushing `data/` as the Actions job does.
+
+Do **not** attempt to bypass the block with proxies/IP rotation — that violates
+`docs/compliance.md`. Choose an allowed egress instead.
+
 ## Quarantine triage
 
 A failed candidate is written to `data/quarantine/<key>/<run_id>.json` with its

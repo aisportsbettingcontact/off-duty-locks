@@ -85,9 +85,31 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
-      - name: Fail the job if capture or extraction failed
+      - name: Report reachability and fail if the source was unreachable
         run: |
-          test "${{ steps.capture.outputs.capture_exit }}" = "0" \
-            || { echo "::error::live capture/verification failed"; exit 1; }
-          test "${{ steps.live.outputs.live_exit }}" = "0" \
-            || { echo "::error::live extraction failed"; exit 1; }
+          CE="${{ steps.capture.outputs.capture_exit }}"
+          LE="${{ steps.live.outputs.live_exit }}"
+          {
+            echo "## Live reachability"
+            echo "- capture exit: \`$CE\`  ·  extraction exit: \`$LE\`  (0 = ok)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CE" != "0" ] || [ "$LE" != "0" ]; then
+            {
+              echo ""
+              echo "**The live source could not be reached from this runner.**"
+              echo ""
+              echo "GitHub-hosted runners use datacenter (Azure) IPs that stats.wnba.com"
+              echo "(Akamai edge) commonly blocks — seen here as connection timeouts"
+              echo "(capture exit 4 / extraction exit 3) or an explicit HTTP 403"
+              echo "(capture exit 3). This is an environment/egress limitation, not a"
+              echo "code defect: the pipeline correctly reports UPSTREAM_UNAVAILABLE"
+              echo "instead of fabricating data."
+              echo ""
+              echo "To complete live verification, run the capture from a residential IP"
+              echo "or a self-hosted runner on an allowed network. See"
+              echo "docs/runbook.md → 'Source reachability (datacenter-IP blocking)'."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::live source unreachable from this runner (capture=$CE, extraction=$LE) — likely datacenter-IP blocking of stats.wnba.com; see the run summary and docs/runbook.md"
+            exit 1
+          fi
+          echo "Live verification reached the source (capture and extraction both succeeded)." >> "$GITHUB_STEP_SUMMARY"

@@ -23,8 +23,12 @@ new scheduler.
 
 - Python 3.11+
 - A GitHub repository with Actions enabled.
-- Outbound network access to `stats.wnba.com` **from the runner** (GitHub-hosted
-  runners have this; the development sandbox does not — see *Live verification*).
+- **A non-datacenter egress to `stats.wnba.com` for any live run.** The stats
+  edge (Akamai) blocks cloud/datacenter IPs, so **GitHub-hosted runners cannot
+  reach it** (nor can the dev sandbox). Live verification and scheduled
+  collection must run from a residential IP or a **self-hosted runner** on an
+  allowed network — see `docs/runbook.md` → *Source reachability
+  (datacenter-IP blocking)*. Offline CI (unit + fixture e2e) needs no network.
 
 ## Deploy from scratch
 
