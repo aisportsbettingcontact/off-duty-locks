@@ -11,6 +11,8 @@ dependencies = [
     "requests>=2.31",
     "psycopg[binary]>=3.2",   # PostgreSQL serving layer (team stats + betting)
     "beautifulsoup4>=4.12",   # VSIN HTML parsing (betting feed)
+    "flask>=3.0",             # read-only web app (offdutylocks.com)
+    "gunicorn>=21.0",         # production WSGI server for the web service
 ]
 
 [project.optional-dependencies]

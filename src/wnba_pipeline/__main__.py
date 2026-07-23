@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from datetime import datetime, timezone
 from typing import Sequence
@@ -166,6 +167,15 @@ def _cmd_betting(args: argparse.Namespace) -> int:
     return int(summary["exitCode"])
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    """Run the read-only web app locally (production uses gunicorn — see
+    railway.web.json). Binds the given host/port; defaults to $PORT or 8080."""
+    from wnba_pipeline.web import app
+
+    app.run(host=args.host, port=args.port)
+    return EXIT_OK
+
+
 def _cmd_status(args: argparse.Namespace) -> int:
     """Read-only: print LKG summary + freshness for the key. No network."""
     params = _params_from_args(args)
@@ -291,6 +301,14 @@ def build_parser() -> argparse.ArgumentParser:
     bet_p.add_argument("--database-url", default=None,
                        help="Postgres connection string (default: $DATABASE_URL)")
     bet_p.set_defaults(func=_cmd_betting, publish=True)
+
+    # serve: read-only web app for local dev (production uses gunicorn).
+    serve_p = sub.add_parser("serve", help="run the read-only web app (local dev)")
+    serve_p.add_argument("--host", default="0.0.0.0",
+                         help="bind host (default: 0.0.0.0)")
+    serve_p.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")),
+                         help="bind port (default: $PORT or 8080)")
+    serve_p.set_defaults(func=_cmd_serve)
 
     status_p = sub.add_parser("status", help="print last-known-good summary (read-only)")
     _add_param_args(status_p)
