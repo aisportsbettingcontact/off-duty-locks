@@ -218,6 +218,7 @@ def get_json(
     *,
     sleep: Callable[[float], None] = time.sleep,
     rng: Any = None,
+    headers: Mapping[str, str] | None = None,
 ) -> tuple[dict[str, Any], bytes, int, str | None, int, int]:
     """GET ``url`` with ``params`` and return
     ``(payload_dict, raw_bytes, http_status, observed_date_header,
@@ -241,6 +242,7 @@ def get_json(
     """
     cfg = config if config is not None else HttpConfig()
     rand = rng if rng is not None else random
+    request_headers = dict(headers) if headers is not None else dict(REQUEST_HEADERS)
     path = urllib.parse.urlsplit(url).path or "/"
     owns_session = session is None
     sess = session if session is not None else requests.Session()
@@ -271,7 +273,7 @@ def get_json(
                 response = sess.get(
                     url,
                     params=dict(params),
-                    headers=dict(REQUEST_HEADERS),
+                    headers=request_headers,
                     timeout=(cfg.connect_timeout_s, cfg.read_timeout_s),
                 )
             except requests.RequestException as exc:
@@ -380,6 +382,141 @@ def get_json(
 
         # Retries exhausted: surface the last reason plus counts. NEVER
         # return empty/partial data here.
+        raise UpstreamUnavailable(
+            last_reason, http_status=last_status,
+            request_count=request_count, retry_count=retry_count,
+        )
+    finally:
+        if owns_session:
+            sess.close()
+
+
+def get_text(
+    url: str,
+    params: Mapping[str, str] | None = None,
+    config: HttpConfig | None = None,
+    session: requests.Session | None = None,
+    breaker: CircuitBreaker | None = None,
+    *,
+    headers: Mapping[str, str] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    rng: Any = None,
+) -> tuple[str, int, str | None, int, int]:
+    """GET ``url`` and return ``(text, http_status, observed_date_header,
+    request_count, retry_count)``.
+
+    Same transport policy as :func:`get_json` — explicit timeouts, bounded
+    retries with exponential backoff + jitter, ``Retry-After`` on 429,
+    fail-fast on 403/404, optional circuit breaker — but returns the raw
+    response text rather than parsed JSON, for non-JSON sources such as the
+    VSIN HTML splits page. Raises ``UpstreamUnavailable`` (never returns
+    empty/partial) on every non-recoverable condition.
+    """
+    cfg = config if config is not None else HttpConfig()
+    rand = rng if rng is not None else random
+    request_headers = dict(headers) if headers is not None else dict(REQUEST_HEADERS)
+    path = urllib.parse.urlsplit(url).path or "/"
+    owns_session = session is None
+    sess = session if session is not None else requests.Session()
+
+    request_count = 0
+    retry_count = 0
+    last_reason = "no_attempt"
+    last_status: int | None = None
+    max_attempts = max(1, cfg.max_retries + 1)
+
+    try:
+        for attempt in range(1, max_attempts + 1):
+            if breaker is not None:
+                try:
+                    breaker.before_request()
+                except UpstreamUnavailable as exc:
+                    raise UpstreamUnavailable(
+                        exc.reason, http_status=None,
+                        request_count=request_count, retry_count=retry_count,
+                    ) from None
+
+            request_count += 1
+            try:
+                response = sess.get(
+                    url,
+                    params=dict(params or {}),
+                    headers=request_headers,
+                    timeout=(cfg.connect_timeout_s, cfg.read_timeout_s),
+                )
+            except requests.RequestException as exc:
+                if breaker is not None:
+                    breaker.record_failure()
+                last_reason = _transport_reason(exc)
+                last_status = None
+                if attempt >= max_attempts:
+                    _log_attempt(path, attempt, None, last_reason, None)
+                    break
+                delay = _backoff_delay(cfg, retry_count, rand)
+                _log_attempt(path, attempt, None, last_reason, delay)
+                retry_count += 1
+                sleep(delay)
+                continue
+
+            if breaker is not None:
+                breaker.record_success()
+            status = response.status_code
+            last_status = status
+
+            if status == 403:
+                _log_attempt(path, attempt, status, "http_403_forbidden", None)
+                raise UpstreamUnavailable(
+                    "http_403_forbidden", http_status=status,
+                    request_count=request_count, retry_count=retry_count,
+                )
+            if status == 404:
+                _log_attempt(path, attempt, status, "http_404_not_found", None)
+                raise UpstreamUnavailable(
+                    "http_404_not_found", http_status=status,
+                    request_count=request_count, retry_count=retry_count,
+                )
+            if status == 429:
+                last_reason = "http_429_rate_limited"
+                if attempt >= max_attempts:
+                    _log_attempt(path, attempt, status, last_reason, None)
+                    break
+                retry_after = _parse_retry_after(
+                    response.headers.get("Retry-After"), cfg.retry_after_cap_s
+                )
+                delay = (
+                    retry_after if retry_after is not None
+                    else _backoff_delay(cfg, retry_count, rand)
+                )
+                _log_attempt(path, attempt, status, last_reason, delay)
+                retry_count += 1
+                sleep(delay)
+                continue
+            if status in RETRYABLE_STATUSES:
+                last_reason = f"http_{status}_server_error"
+                if attempt >= max_attempts:
+                    _log_attempt(path, attempt, status, last_reason, None)
+                    break
+                delay = _backoff_delay(cfg, retry_count, rand)
+                _log_attempt(path, attempt, status, last_reason, delay)
+                retry_count += 1
+                sleep(delay)
+                continue
+
+            if 200 <= status < 300:
+                _log_attempt(path, attempt, status, "ok", None)
+                text = response.content.decode(response.encoding or "utf-8", "replace")
+                return (
+                    text, status, response.headers.get("Date"),
+                    request_count, retry_count,
+                )
+
+            reason = f"http_{status}_unexpected"
+            _log_attempt(path, attempt, status, reason, None)
+            raise UpstreamUnavailable(
+                reason, http_status=status,
+                request_count=request_count, retry_count=retry_count,
+            )
+
         raise UpstreamUnavailable(
             last_reason, http_status=last_status,
             request_count=request_count, retry_count=retry_count,

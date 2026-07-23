@@ -57,6 +57,21 @@ STAT_COLUMNS: dict[str, str] = {
 
 TEAM_STATS_PK: tuple[str, ...] = ("season", "season_type", "per_mode", "split", "team_id")
 
+BETTING_GAMES_PK: tuple[str, ...] = ("game_key",)
+
+# betting_games columns in insert order (updated_at is managed by the DB).
+BETTING_GAMES_COLUMNS: tuple[str, ...] = (
+    "game_key", "game_date", "start_time", "status",
+    "away_team_id", "home_team_id", "away_abbr", "home_abbr", "away_name", "home_name",
+    "open_spread", "current_spread", "sharp_spread",
+    "spread_pct_bets_away", "spread_pct_money_away", "spread_line_move", "spread_rlm",
+    "open_total", "current_total", "sharp_total",
+    "total_pct_bets_over", "total_pct_money_over", "total_line_move", "total_rlm",
+    "open_ml_away", "open_ml_home", "current_ml_away", "current_ml_home",
+    "sharp_ml_away", "sharp_ml_home", "ml_pct_bets_away", "ml_pct_money_away", "ml_rlm",
+    "public_book", "sharp_book", "an_game_id", "vsin_game_id", "fetched_at_utc",
+)
+
 
 def split_label(last_n_games: int) -> str:
     """DB split label for a LastNGames window. 0 = full season = 'ytd'."""
@@ -93,6 +108,21 @@ def team_stats_rows(snapshot: Snapshot) -> list[dict[str, Any]]:
         row["normalized_checksum"] = normalized_checksum
         row["fetched_at_utc"] = snapshot.fetched_at_utc
         rows.append(row)
+    return rows
+
+
+def betting_games_rows(games: list[Any]) -> list[dict[str, Any]]:
+    """BettingGame dataclasses -> column dicts for the ``betting_games`` upsert.
+
+    Decoupled from the betting types: any dataclass whose field names match the
+    columns works (via ``dataclasses.asdict``).
+    """
+    import dataclasses
+
+    rows: list[dict[str, Any]] = []
+    for g in games:
+        d = dataclasses.asdict(g)
+        rows.append({col: d.get(col) for col in BETTING_GAMES_COLUMNS})
     return rows
 
 
@@ -193,5 +223,33 @@ class TeamStatsPublisher:
                     "extractionKey": snapshot.extraction_key,
                 }
             )
+        )
+        return len(rows)
+
+
+class BettingPublisher:
+    """Publishes merged betting games to Postgres (upsert by game_key)."""
+
+    def __init__(self, database_url: str | None = None) -> None:
+        self.database_url = database_url
+
+    def publish(self, games: list[Any]) -> int:
+        """Upsert one row per game. Returns the number of rows written."""
+        rows = betting_games_rows(games)
+        if not rows:
+            return 0
+        columns = list(BETTING_GAMES_COLUMNS)
+        sql = upsert_sql("betting_games", columns, BETTING_GAMES_PK)
+        params = [tuple(row[c] for c in columns) for row in rows]
+        conn = connect(self.database_url)
+        try:
+            bootstrap_schema(conn)  # self-healing; safe if tables already exist
+            with conn.cursor() as cur:
+                cur.executemany(sql, params)
+            conn.commit()
+        finally:
+            conn.close()
+        logger.info(
+            json.dumps({"event": "published", "table": "betting_games", "rows": len(rows)})
         )
         return len(rows)

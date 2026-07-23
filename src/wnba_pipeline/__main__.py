@@ -152,6 +152,20 @@ def _cmd_db_init(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_betting(args: argparse.Namespace) -> int:
+    """Fetch VSIN + Action Network betting markets, merge, and publish."""
+    from wnba_pipeline.betting.runner import run_betting
+
+    publish_fn = None
+    if getattr(args, "publish", True):
+        from wnba_pipeline.db import BettingPublisher
+
+        publish_fn = BettingPublisher(getattr(args, "database_url", None)).publish
+    dates = [args.date] if getattr(args, "date", None) else None
+    summary = run_betting(dates=dates, publish_fn=publish_fn)
+    return int(summary["exitCode"])
+
+
 def _cmd_status(args: argparse.Namespace) -> int:
     """Read-only: print LKG summary + freshness for the key. No network."""
     params = _params_from_args(args)
@@ -264,6 +278,19 @@ def build_parser() -> argparse.ArgumentParser:
     db_p.add_argument("--database-url", default=None,
                       help="Postgres connection string (default: $DATABASE_URL)")
     db_p.set_defaults(func=_cmd_db_init)
+
+    # betting: VSIN + Action Network -> betting_games.
+    bet_p = sub.add_parser(
+        "betting",
+        help="fetch VSIN + Action Network betting markets and publish to Postgres",
+    )
+    bet_p.add_argument("--date", default=None,
+                       help="ET date YYYY-MM-DD (default: today + tomorrow)")
+    bet_p.add_argument("--no-publish", dest="publish", action="store_false",
+                       help="skip the Postgres publish (default: publish)")
+    bet_p.add_argument("--database-url", default=None,
+                       help="Postgres connection string (default: $DATABASE_URL)")
+    bet_p.set_defaults(func=_cmd_betting, publish=True)
 
     status_p = sub.add_parser("status", help="print last-known-good summary (read-only)")
     _add_param_args(status_p)

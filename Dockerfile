@@ -25,16 +25,13 @@ COPY . /app
 # fallback path would no longer resolve.
 RUN pip install --no-cache-dir -e .
 
-# Snapshots, last-known-good, quarantine, and manifests persist under /data.
-# Attach a Railway volume mounted at /data so they survive redeploys — the
-# container filesystem is otherwise ephemeral.
+# Team-stats file store (snapshots, LKG, quarantine, manifests) persists under
+# /data. Attach a Railway volume at /data if you run team stats in this image;
+# the betting feed writes only to Postgres and needs no volume.
 VOLUME ["/data"]
 
-# Default: a fully-offline validation run against the committed recording. It
-# needs no network and exits 0 (SUCCESS), proving the deploy end-to-end.
-# railway.toml's startCommand overrides this; see it for the live-run variant.
-# NOTE: stats.wnba.com blocks datacenter IPs, so a LIVE run here exits 3
-# (UPSTREAM_UNAVAILABLE) until routed through residential/self-hosted egress.
-CMD ["wnba-pipeline", "run", \
-     "--fixture", "fixtures/sanitized/leaguedashteamstats_2026_lastn7.json", \
-     "--data-root", "/data"]
+# Default command: the betting feed (VSIN + Action Network -> Postgres), which
+# is what runs on Railway (see railway.toml's cron + startCommand). Publishing
+# requires DATABASE_URL. Team stats run off-datacenter, e.g.:
+#   wnba-pipeline run-team-stats --publish --database-url "<postgres public url>"
+CMD ["wnba-pipeline", "betting"]

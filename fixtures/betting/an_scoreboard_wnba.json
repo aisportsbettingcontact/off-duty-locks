@@ -1,0 +1,365 @@
+{
+  "_provenance": {
+    "synthetic": false,
+    "source": "Action Network v2 scoreboard (/web/v2/scoreboard/wnba)",
+    "captured": "2026-07-22",
+    "sanitized": "trimmed to 2 WNBA games and minimal market fields; no credentials/cookies",
+    "note": "public market endpoint; line values reflect capture time, used only to pin parser behavior"
+  },
+  "games": [
+    {
+      "id": 285939,
+      "status": "complete",
+      "start_time": "2026-07-22T19:00:00.000Z",
+      "away_team_id": 1340,
+      "home_team_id": 1338,
+      "teams": [
+        {
+          "id": 1338,
+          "abbr": "LA",
+          "full_name": "Los Angeles Sparks",
+          "display_name": "Sparks",
+          "url_slug": null
+        },
+        {
+          "id": 1340,
+          "abbr": "PHX",
+          "full_name": "Phoenix Mercury",
+          "display_name": "Mercury",
+          "url_slug": null
+        }
+      ],
+      "markets": {
+        "30": {
+          "event": {
+            "spread": [
+              {
+                "side": "home",
+                "team_id": 1338,
+                "value": -1.5,
+                "odds": -114,
+                "is_live": null
+              },
+              {
+                "side": "away",
+                "team_id": 1340,
+                "value": 1.5,
+                "odds": -109,
+                "is_live": null
+              }
+            ],
+            "total": [
+              {
+                "side": "over",
+                "team_id": 0,
+                "value": 178.5,
+                "odds": -116,
+                "is_live": null
+              },
+              {
+                "side": "under",
+                "team_id": 0,
+                "value": 178.5,
+                "odds": -111,
+                "is_live": null
+              }
+            ],
+            "moneyline": [
+              {
+                "side": "away",
+                "team_id": 1340,
+                "value": 0,
+                "odds": -102,
+                "is_live": null
+              },
+              {
+                "side": "home",
+                "team_id": 1338,
+                "value": 0,
+                "odds": -118,
+                "is_live": null
+              }
+            ]
+          }
+        },
+        "68": {
+          "event": {
+            "spread": [
+              {
+                "side": "home",
+                "team_id": 1338,
+                "value": -1.5,
+                "odds": -105,
+                "is_live": false,
+                "bet_info": {
+                  "tickets": {
+                    "percent": 68
+                  },
+                  "money": {
+                    "percent": 71
+                  }
+                }
+              },
+              {
+                "side": "away",
+                "team_id": 1340,
+                "value": 1.5,
+                "odds": -115,
+                "is_live": false,
+                "bet_info": {
+                  "tickets": {
+                    "percent": 32
+                  },
+                  "money": {
+                    "percent": 29
+                  }
+                }
+              }
+            ],
+            "total": [
+              {
+                "side": "over",
+                "team_id": null,
+                "value": 176.5,
+                "odds": -107,
+                "is_live": false,
+                "bet_info": {
+                  "tickets": {
+                    "percent": 79
+                  },
+                  "money": {
+                    "percent": 80
+                  }
+                }
+              },
+              {
+                "side": "under",
+                "team_id": null,
+                "value": 176.5,
+                "odds": -113,
+                "is_live": false,
+                "bet_info": {
+                  "tickets": {
+                    "percent": 21
+                  },
+                  "money": {
+                    "percent": 20
+                  }
+                }
+              }
+            ],
+            "moneyline": [
+              {
+                "side": "away",
+                "team_id": 1340,
+                "value": 0,
+                "odds": 100,
+                "is_live": false,
+                "bet_info": {
+                  "tickets": {
+                    "percent": 20
+                  },
+                  "money": {
+                    "percent": 28
+                  }
+                }
+              },
+              {
+                "side": "home",
+                "team_id": 1338,
+                "value": 0,
+                "odds": -121,
+                "is_live": false,
+                "bet_info": {
+                  "tickets": {
+                    "percent": 80
+                  },
+                  "money": {
+                    "percent": 72
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 285940,
+      "status": "complete",
+      "start_time": "2026-07-22T19:00:00.000Z",
+      "away_team_id": 1339,
+      "home_team_id": 1342,
+      "teams": [
+        {
+          "id": 1339,
+          "abbr": "MIN",
+          "full_name": "Minnesota Lynx",
+          "display_name": "Lynx",
+          "url_slug": null
+        },
+        {
+          "id": 1342,
+          "abbr": "SEA",
+          "full_name": "Seattle Storm",
+          "display_name": "Storm",
+          "url_slug": null
+        }
+      ],
+      "markets": {
+        "30": {
+          "event": {
+            "spread": [
+              {
+                "side": "home",
+                "team_id": 1342,
+                "value": 9.5,
+                "odds": -110,
+                "is_live": null
+              },
+              {
+                "side": "away",
+                "team_id": 1339,
+                "value": -9.5,
+                "odds": -110,
+                "is_live": null
+              }
+            ],
+            "total": [
+              {
+                "side": "under",
+                "team_id": 0,
+                "value": 173.5,
+                "odds": -110,
+                "is_live": null
+              },
+              {
+                "side": "over",
+                "team_id": 0,
+                "value": 173.5,
+                "odds": -113,
+                "is_live": null
+              }
+            ],
+            "moneyline": [
+              {
+                "side": "away",
+                "team_id": 1339,
+                "value": 0,
+                "odds": -395,
+                "is_live": null
+              },
+              {
+                "side": "home",
+                "team_id": 1342,
+                "value": 0,
+                "odds": 310,
+                "is_live": null
+              }
+            ]
+          }
+        },
+        "68": {
+          "event": {
+            "spread": [
+              {
+                "side": "home",
+                "team_id": 1342,
+                "value": 10.5,
+                "odds": -110,
+                "is_live": false,
+                "bet_info": {
+                  "tickets": {
+                    "percent": 67
+                  },
+                  "money": {
+                    "percent": 75
+                  }
+                }
+              },
+              {
+                "side": "away",
+                "team_id": 1339,
+                "value": -10.5,
+                "odds": -110,
+                "is_live": false,
+                "bet_info": {
+                  "tickets": {
+                    "percent": 33
+                  },
+                  "money": {
+                    "percent": 25
+                  }
+                }
+              }
+            ],
+            "total": [
+              {
+                "side": "over",
+                "team_id": null,
+                "value": 179.5,
+                "odds": -104,
+                "is_live": false,
+                "bet_info": {
+                  "tickets": {
+                    "percent": 81
+                  },
+                  "money": {
+                    "percent": 93
+                  }
+                }
+              },
+              {
+                "side": "under",
+                "team_id": null,
+                "value": 179.5,
+                "odds": -116,
+                "is_live": false,
+                "bet_info": {
+                  "tickets": {
+                    "percent": 19
+                  },
+                  "money": {
+                    "percent": 7
+                  }
+                }
+              }
+            ],
+            "moneyline": [
+              {
+                "side": "home",
+                "team_id": 1342,
+                "value": 0,
+                "odds": 371,
+                "is_live": false,
+                "bet_info": {
+                  "tickets": {
+                    "percent": 12
+                  },
+                  "money": {
+                    "percent": 34
+                  }
+                }
+              },
+              {
+                "side": "away",
+                "team_id": 1339,
+                "value": 0,
+                "odds": -503,
+                "is_live": false,
+                "bet_info": {
+                  "tickets": {
+                    "percent": 88
+                  },
+                  "money": {
+                    "percent": 66
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

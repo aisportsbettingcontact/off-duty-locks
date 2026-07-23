@@ -87,6 +87,36 @@ data/
 The dataset identity (`<key>`) is the extraction key, e.g.
 `wnba-teamstats:v1:season=2026:type=regular-season:lastn=7:measure=base:permode=pergame`.
 
+## Database serving layer & betting feed
+
+Two feeds publish to a PostgreSQL database (Railway) that the site reads. The
+file store above stays the source of truth and audit trail for team stats;
+Postgres is the read model.
+
+**Team stats** → `team_stats` (one row per team per split):
+- `split = 'last7'` (Last 7 Games) and `split = 'ytd'` (Year-to-Date,
+  `LastNGames=0`), refreshed together;
+- all traditional fields plus two derived columns computed at publish:
+  `possessions = FGA − OREB + TOV + 0.44·FTA` and
+  `offensive_rating = (points ÷ possessions) × 100`.
+
+**Betting** → `betting_games` (one wide row per game): opening + current
+(DraftKings) + sharp (Circa) spread/total/moneyline, % of bets, % of money,
+line movement, and reverse-line-movement flags. Sourced from Action Network
+(odds + splits) and VSIN (the Circa sharp line), merged by date + matchup.
+
+```bash
+wnba-pipeline db-init                    # create the schema (idempotent)
+wnba-pipeline run-team-stats --publish   # YTD + Last-7 -> team_stats
+wnba-pipeline betting --publish          # VSIN + Action Network -> betting_games
+# All accept --database-url; the default is $DATABASE_URL.
+```
+
+**Where each runs:** the betting feed runs on Railway (VSIN + Action Network are
+datacenter-reachable). Team stats need a non-datacenter egress (stats.wnba.com
+blocks cloud IPs) and run off-Railway, publishing to the same Postgres via its
+public URL. See `docs/deployment.md`.
+
 ## Documentation
 
 | Doc | Contents |
