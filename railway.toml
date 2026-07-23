@@ -1,0 +1,28 @@
+# Railway config-as-code for the WNBA team-statistics pipeline.
+# Reference: https://docs.railway.com/reference/config-as-code
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# A batch job, not a long-running service: it runs once and exits. NEVER stops
+# Railway from restart-looping the container after it exits.
+restartPolicyType = "NEVER"
+
+# Daily at 10:30 UTC, matching .github/workflows/extract.yml. On each tick
+# Railway starts the container, runs startCommand, and the process exits when
+# the run completes. (Cron services do NOT run immediately on deploy — trigger
+# a manual redeploy to verify now, or wait for the next tick.)
+cronSchedule = "30 10 * * *"
+
+# Default start command: offline validation run against the committed recording
+# (exits 0 / SUCCESS, no network). This is RECORDED data, for proving the
+# deploy — not live collection.
+#
+# To collect LIVE data, replace with the real parameters:
+#   startCommand = "wnba-pipeline run --season 2026 --last-n-games 7 --data-root /data"
+# Live runs need residential or self-hosted egress: stats.wnba.com (Akamai)
+# 403s datacenter IPs, so on Railway a live run exits 3 (UPSTREAM_UNAVAILABLE)
+# and preserves the last-known-good snapshot untouched.
+startCommand = "wnba-pipeline run --fixture fixtures/sanitized/leaguedashteamstats_2026_lastn7.json --data-root /data"
