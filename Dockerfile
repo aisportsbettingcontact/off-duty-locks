@@ -25,10 +25,10 @@ COPY . /app
 # fallback path would no longer resolve.
 RUN pip install --no-cache-dir -e .
 
-# Team-stats file store (snapshots, LKG, quarantine, manifests) persists under
-# /data. Attach a Railway volume at /data if you run team stats in this image;
-# the betting feed writes only to Postgres and needs no volume.
-VOLUME ["/data"]
+# The betting feed (Railway's job) writes only to Postgres — no volume needed.
+# If you run team stats in this image, attach a Railway Volume mounted at /data
+# via the dashboard; Railway rejects the Dockerfile VOLUME instruction, so it is
+# intentionally omitted here.
 
 # Default command: the betting feed (VSIN + Action Network -> Postgres), which
 # is what runs on Railway (see railway.toml's cron + startCommand). Publishing
