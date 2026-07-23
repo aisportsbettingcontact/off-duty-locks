@@ -103,6 +103,43 @@ The serving database and the betting feed run in the Railway project
 or supplied on the command line (public URL) for off-Railway team-stats runs.
 No database credentials are stored in the repository.
 
+## Web service & custom domain (offdutylocks.com)
+
+The public site is a **second Railway service** in the same project, separate
+from the betting-cron worker. Both build from this repo and share the Postgres
+(`DATABASE_URL`) but run different commands:
+
+| Service | Config | Start command | Networking |
+|---|---|---|---|
+| Betting worker | `railway.toml` | `wnba-pipeline betting` (30-min cron) | none (unexposed) |
+| Web (site) | `railway.web.json` | `gunicorn wnba_pipeline.web:app -b 0.0.0.0:$PORT` | public + domain |
+
+**Add the web service:**
+
+1. Railway → New → GitHub Repo → the same `off-duty-locks` repo.
+2. In its **Settings → Config-as-code**, set the path to `railway.web.json` so
+   it uses the gunicorn start command and the `/healthz` healthcheck — **not**
+   the worker's betting cron. (Or set the start command manually in the
+   dashboard.)
+3. Add the variable reference `DATABASE_URL = ${{Postgres.DATABASE_URL}}`.
+4. Deploy, then confirm `/healthz` returns 200 and `/` renders.
+
+**Point the domain (Railway → Cloudflare):**
+
+1. Web service → **Settings → Networking → Custom Domain** → add
+   `offdutylocks.com` (and `www` separately). Railway returns a CNAME target
+   like `xxxx.up.railway.app`.
+2. Cloudflare → **DNS**: `CNAME @` → the Railway target, and `CNAME www` → the
+   same target (the apex works via Cloudflare's CNAME flattening).
+3. Start **DNS-only** (grey cloud) so Railway can issue its TLS certificate;
+   once the domain shows **Active** in Railway, turn on the Cloudflare proxy
+   (orange cloud) with **SSL/TLS → Full (strict)**. Enabling the proxy before
+   the certificate is issued is the usual cause of failures.
+
+The web app is read-only (SELECT only) and holds no secrets beyond
+`DATABASE_URL`; it renders a friendly empty state when the database has no data
+yet, so it is safe to expose before the first data run.
+
 ## Rolling back a deploy
 
 - **Code:** `git revert <commit>` and let CI re-run.

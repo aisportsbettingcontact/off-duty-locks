@@ -117,6 +117,26 @@ datacenter-reachable). Team stats need a non-datacenter egress (stats.wnba.com
 blocks cloud IPs) and run off-Railway, publishing to the same Postgres via its
 public URL. See `docs/deployment.md`.
 
+## Website (offdutylocks.com)
+
+A small read-only Flask app (`wnba_pipeline.web`) serves the published data:
+
+- `/` — HTML dashboard (betting board + Last-7 / Year-to-Date team tables);
+- `/api/team-stats?split=last7|ytd` and `/api/betting` — JSON;
+- `/healthz` — health check.
+
+It runs as a **second Railway service** (the first is the betting cron),
+sharing the same Postgres via `DATABASE_URL`, started with:
+
+```bash
+gunicorn wnba_pipeline.web:app -b 0.0.0.0:$PORT --workers 2 --timeout 60
+```
+
+The app is read-only (SELECT only), holds no secrets beyond `DATABASE_URL`, and
+renders a friendly empty state when the database has no data yet. The domain
+(offdutylocks.com, via Cloudflare) points at this service — see
+`docs/deployment.md` → *Web service & custom domain*.
+
 ## Documentation
 
 | Doc | Contents |
