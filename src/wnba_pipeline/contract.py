@@ -368,6 +368,10 @@ class RunManifest:
     storage_result: str | None = None
     last_known_good_preserved: bool = True
     failure_reason: str | None = None
+    # Serving-layer publish outcome (DB). None = not attempted; else
+    # "PUBLISHED:<rows>" or "FAILED:<ExceptionType>". A publish failure never
+    # changes the run's exit code — the file store is the source of truth.
+    publish_result: str | None = None
     schema_version: str = SCHEMA_VERSION
 
     def to_json_dict(self) -> dict[str, Any]:
@@ -395,6 +399,7 @@ class RunManifest:
             "storageResult": self.storage_result,
             "lastKnownGoodPreserved": self.last_known_good_preserved,
             "failureReason": self.failure_reason,
+            "publishResult": self.publish_result,
             "schemaVersion": self.schema_version,
         }
 

@@ -293,8 +293,9 @@ def validate_and_normalize(
                     rows=(row_index,),
                 )
 
-        # LASTN_EXCEEDED — GP can never exceed the LastNGames window.
-        if gp is not None and gp > params.last_n_games:
+        # LASTN_EXCEEDED — GP can never exceed the LastNGames window. A window
+        # of 0 means "all games" (the Year-to-Date split), which imposes no cap.
+        if gp is not None and params.last_n_games > 0 and gp > params.last_n_games:
             collector.add(
                 LASTN_EXCEEDED,
                 f"rowSet[{row_index}] GP({gp}) > LastNGames({params.last_n_games})",

@@ -88,6 +88,15 @@ def _add_param_args(p: argparse.ArgumentParser) -> None:
                    help="storage root directory (default: ./data)")
 
 
+def _make_publish_fn(args: argparse.Namespace):
+    """A DB publish callable when --publish is in effect, else None."""
+    if not getattr(args, "publish", False):
+        return None
+    from wnba_pipeline.db import TeamStatsPublisher
+
+    return TeamStatsPublisher(getattr(args, "database_url", None)).publish
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     params = _params_from_args(args)
     _, exit_code = run_once(
@@ -95,9 +104,66 @@ def _cmd_run(args: argparse.Namespace) -> int:
         args.data_root,
         fixture_path=args.fixture,
         max_age_hours=args.max_age_hours,
+        publish_fn=_make_publish_fn(args),
     )
     # The runner already printed the manifest JSON line on stdout.
     return exit_code
+
+
+def _cmd_run_team_stats(args: argparse.Namespace) -> int:
+    """Run BOTH splits — Last-N (default 7) and Year-to-Date (LastNGames=0) —
+    publishing each, so the site's 'Last 7 Games' and 'Year-to-Date' sections
+    stay in sync. Returns the highest-severity exit code across the splits.
+
+    Each split is a full, independent locked run with its own manifest emitted
+    on stdout (one JSON line per split)."""
+    import dataclasses
+
+    publish_fn = _make_publish_fn(args)
+    base = _params_from_args(args)
+    windows: list[int] = []
+    for window in (args.last_n_games, 0):
+        if window not in windows:
+            windows.append(window)
+    worst = EXIT_OK
+    for window in windows:
+        params = dataclasses.replace(base, last_n_games=window)
+        _, code = run_once(
+            params,
+            args.data_root,
+            fixture_path=args.fixture,
+            max_age_hours=args.max_age_hours,
+            publish_fn=publish_fn,
+        )
+        worst = max(worst, code)
+    return worst
+
+
+def _cmd_db_init(args: argparse.Namespace) -> int:
+    """Create the serving-layer schema in the target database (idempotent)."""
+    from wnba_pipeline import db
+
+    try:
+        db.init_db(getattr(args, "database_url", None))
+    except contract.ConfigError as exc:
+        print(json.dumps({"error": str(exc)}, indent=2))
+        return EXIT_CONFIG_ERROR
+    print(json.dumps({"result": "db_initialized"}, indent=2))
+    return EXIT_OK
+
+
+def _cmd_betting(args: argparse.Namespace) -> int:
+    """Fetch VSIN + Action Network betting markets, merge, and publish."""
+    from wnba_pipeline.betting.runner import run_betting
+
+    publish_fn = None
+    if getattr(args, "publish", True):
+        from wnba_pipeline.db import BettingPublisher
+
+        publish_fn = BettingPublisher(getattr(args, "database_url", None)).publish
+    dates = [args.date] if getattr(args, "date", None) else None
+    summary = run_betting(dates=dates, publish_fn=publish_fn)
+    return int(summary["exitCode"])
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
@@ -184,7 +250,47 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--max-age-hours", type=float, default=DEFAULT_MAX_AGE_HOURS,
                        help=f"LKG freshness window in hours "
                             f"(default: {DEFAULT_MAX_AGE_HOURS})")
+    run_p.add_argument("--publish", action="store_true",
+                       help="publish the accepted snapshot to Postgres (DATABASE_URL)")
+    run_p.add_argument("--database-url", default=None,
+                       help="Postgres connection string (default: $DATABASE_URL)")
     run_p.set_defaults(func=_cmd_run)
+
+    # run-team-stats: both splits (Last-N + Year-to-Date), publishing each.
+    sync_p = sub.add_parser(
+        "run-team-stats",
+        help="run Last-N and Year-to-Date splits and publish both to Postgres",
+    )
+    _add_param_args(sync_p)
+    sync_p.add_argument("--fixture", default=None,
+                        help="offline mode: recorded envelope JSON, used for both splits")
+    sync_p.add_argument("--max-age-hours", type=float, default=DEFAULT_MAX_AGE_HOURS,
+                        help=f"LKG freshness window in hours "
+                             f"(default: {DEFAULT_MAX_AGE_HOURS})")
+    sync_p.add_argument("--no-publish", dest="publish", action="store_false",
+                        help="skip the Postgres publish (default: publish)")
+    sync_p.add_argument("--database-url", default=None,
+                        help="Postgres connection string (default: $DATABASE_URL)")
+    sync_p.set_defaults(func=_cmd_run_team_stats, publish=True)
+
+    # db-init: create the serving-layer schema (idempotent).
+    db_p = sub.add_parser("db-init", help="create the Postgres serving-layer schema")
+    db_p.add_argument("--database-url", default=None,
+                      help="Postgres connection string (default: $DATABASE_URL)")
+    db_p.set_defaults(func=_cmd_db_init)
+
+    # betting: VSIN + Action Network -> betting_games.
+    bet_p = sub.add_parser(
+        "betting",
+        help="fetch VSIN + Action Network betting markets and publish to Postgres",
+    )
+    bet_p.add_argument("--date", default=None,
+                       help="ET date YYYY-MM-DD (default: today + tomorrow)")
+    bet_p.add_argument("--no-publish", dest="publish", action="store_false",
+                       help="skip the Postgres publish (default: publish)")
+    bet_p.add_argument("--database-url", default=None,
+                       help="Postgres connection string (default: $DATABASE_URL)")
+    bet_p.set_defaults(func=_cmd_betting, publish=True)
 
     status_p = sub.add_parser("status", help="print last-known-good summary (read-only)")
     _add_param_args(status_p)

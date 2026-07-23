@@ -9,6 +9,7 @@ real teams+validation modules end to end.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 import pytest
 
@@ -136,8 +137,11 @@ def test_upstream_unavailable_preserves_lkg(tmp_path):
         raise UpstreamUnavailable("http_429_rate_limited", http_status=429,
                                   request_count=5, retry_count=4)
 
+    # Pin "now" near the LKG's fetch time so freshness is deterministic
+    # regardless of the real wall clock: the LKG is recent, hence FRESH.
     manifest, code = run_once(ExtractionParams(), tmp_path, fetch_fn=failing_fetch,
-                              resolve_teams_fn=resolve_fn, validate_fn=validate_fn)
+                              resolve_teams_fn=resolve_fn, validate_fn=validate_fn,
+                              now_fn=lambda: datetime(2026, 7, 20, 12, 30, tzinfo=timezone.utc))
     assert code == EXIT_UPSTREAM_UNAVAILABLE
     assert manifest.status is RunStatus.UPSTREAM_UNAVAILABLE
     assert manifest.failure_reason == "http_429_rate_limited"

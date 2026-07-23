@@ -289,6 +289,7 @@ def run_once(
     fetch_fn: Callable[[ExtractionParams], RawFetchResult] | None = None,
     resolve_teams_fn: Callable[[str], ExpectedTeamSet] | None = None,
     validate_fn: Callable[[RawFetchResult, ExpectedTeamSet], Any] | None = None,
+    publish_fn: Callable[[Any], Any] | None = None,
     fixture_path: str | os.PathLike[str] | None = None,
     now_fn: Callable[[], datetime] | None = None,
     max_age_hours: float = DEFAULT_MAX_AGE_HOURS,
@@ -355,6 +356,7 @@ def run_once(
                 fetch_fn=fetch_fn,
                 resolve_teams_fn=resolve_teams_fn,
                 validate_fn=validate_fn,
+                publish_fn=publish_fn,
                 fixture_path=fixture_path,
                 now_fn=now_fn,
                 max_age_hours=max_age_hours,
@@ -394,6 +396,31 @@ def _safe_freshness(store: Store, key: str,
         return FreshnessState.MISSING
 
 
+def _maybe_publish(
+    manifest: RunManifest,
+    publish_fn: Callable[[Any], Any] | None,
+    snapshot: Any,
+) -> None:
+    """Publish an accepted snapshot to the serving layer (best-effort).
+
+    The file store is the source of truth: a publish failure is recorded on
+    the manifest and logged, but NEVER changes the run's status or exit code.
+    """
+    if publish_fn is None:
+        return
+    try:
+        result = publish_fn(snapshot)
+        manifest.publish_result = (
+            f"PUBLISHED:{result}" if isinstance(result, int) else "PUBLISHED"
+        )
+        _log("published", runId=manifest.run_id,
+             publishResult=manifest.publish_result)
+    except Exception as exc:  # noqa: BLE001 - publish must not fail a good run
+        manifest.publish_result = f"FAILED:{type(exc).__name__}"
+        logger.warning("publish failed for run %s: %s", manifest.run_id, exc)
+        _log("publish_failed", runId=manifest.run_id, error=str(exc))
+
+
 def _run_pipeline(
     manifest: RunManifest,
     params: ExtractionParams,
@@ -403,6 +430,7 @@ def _run_pipeline(
     fetch_fn: Callable[[ExtractionParams], RawFetchResult],
     resolve_teams_fn: Callable[[str], ExpectedTeamSet],
     validate_fn: Callable[[RawFetchResult, ExpectedTeamSet], Any],
+    publish_fn: Callable[[Any], Any] | None,
     fixture_path: str | os.PathLike[str] | None,
     now_fn: Callable[[], datetime],
     max_age_hours: float,
@@ -493,6 +521,7 @@ def _run_pipeline(
         manifest.freshness_state = FreshnessState.FRESH
         _log("success_unchanged", runId=run_id,
              sourceChecksum=snapshot.source_checksum, lkgPath=str(lkg_path))
+        _maybe_publish(manifest, publish_fn, snapshot)
         return
 
     snap_path = store.accept_snapshot(run_id, key, snapshot)
@@ -505,6 +534,7 @@ def _run_pipeline(
     manifest.freshness_state = FreshnessState.FRESH
     _log("success", runId=run_id, snapshotPath=str(snap_path),
          teamCount=snapshot.team_count, rowCount=snapshot.row_count)
+    _maybe_publish(manifest, publish_fn, snapshot)
 
 
 def _finalize(

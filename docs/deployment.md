@@ -82,6 +82,27 @@ blocked in the build sandbox. To confirm it:
 | Enable switch | repo variable `PIPELINE_ENABLED` | enabled |
 | Retention | `storage.Store.prune` args | 50/50/50/200 |
 
+## Railway + Postgres serving layer
+
+The serving database and the betting feed run in the Railway project
+(`cdcd511e-…`):
+
+1. **Add Postgres**: project → New → Database → PostgreSQL.
+2. **Reference the URL** into the service:
+   `DATABASE_URL = ${{Postgres.DATABASE_URL}}`. The schema is created
+   automatically on first publish (or run `wnba-pipeline db-init`).
+3. **Betting service** (on Railway): `railway.toml` sets a 30-minute cron
+   running `wnba-pipeline betting`, publishing `betting_games`. VSIN and Action
+   Network are datacenter-reachable, so this works from Railway.
+4. **Team stats** (off-Railway): stats.wnba.com blocks datacenter IPs, so run
+   `wnba-pipeline run-team-stats --publish --database-url "<Postgres PUBLIC
+   url>"` from a residential or self-hosted runner. It publishes `team_stats`
+   (YTD + Last-7) to the same database.
+
+`DATABASE_URL` is the only secret — injected by Railway (internal networking)
+or supplied on the command line (public URL) for off-Railway team-stats runs.
+No database credentials are stored in the repository.
+
 ## Rolling back a deploy
 
 - **Code:** `git revert <commit>` and let CI re-run.

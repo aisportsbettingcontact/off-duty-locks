@@ -1,0 +1,25 @@
+# Railway config-as-code for the WNBA pipeline.
+# Reference: https://docs.railway.com/reference/config-as-code
+#
+# The Railway service runs the BETTING feed. VSIN and Action Network are both
+# reachable from Railway's datacenter (verified), so this collects betting
+# markets and publishes them to Postgres on a schedule. Team stats
+# (stats.wnba.com) are datacenter-blocked and must run off-Railway — see
+# docs/deployment.md.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# One-shot per run: the process fetches, publishes, and exits. NEVER stops
+# Railway from restart-looping the container after a clean exit.
+restartPolicyType = "NEVER"
+
+# Every 30 minutes — betting lines move through the day. Dial to taste.
+cronSchedule = "*/30 * * * *"
+
+# Publishes betting_games to Postgres. Requires DATABASE_URL: reference the
+# Postgres service in this project → DATABASE_URL = ${{Postgres.DATABASE_URL}}
+# (Cron services do not run on deploy; trigger a redeploy to run once now.)
+startCommand = "wnba-pipeline betting"

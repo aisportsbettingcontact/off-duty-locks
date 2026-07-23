@@ -1,0 +1,16 @@
+# Keep the build context small and the image clean. src/ and fixtures/ are
+# required at runtime; everything below is build/test/doc-only or regenerated.
+.git
+.github
+data
+docs
+tests
+qa
+scripts
+**/__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+*.egg-info
+.venv
+venv
