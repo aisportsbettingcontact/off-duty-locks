@@ -1,0 +1,124 @@
+name: Railway Ops
+
+# Inspect, and optionally repair, the Railway service behind offdutylocks.com.
+#
+# Every layer this repository controls is proven healthy: the image builds and
+# serves on [::]:3000, the database holds rows, DNS points at Railway, TLS is
+# valid, and Railway's edge has a route for the domain (an unknown Host gets
+# 404 while ours gets 502, so the route exists and was used). The remaining
+# fault — nothing answering behind that route — lives in Railway's own
+# configuration, which is only reachable through Railway's API.
+#
+# `diagnose` is read-only and is the default. `fix` needs apply=true before it
+# writes anything, and only ever touches the service that owns the domain.
+#
+# Requires a Railway token as a repository secret. RAILWAY_API_TOKEN (account
+# or team) is preferred because a project token cannot enumerate projects.
+# Tokens are never printed — only their presence and kind.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "diagnose (read-only) or fix"
+        type: choice
+        options: ["diagnose", "fix"]
+        required: false
+        default: "diagnose"
+      apply:
+        description: "In fix mode, actually write the change"
+        type: boolean
+        required: false
+        default: false
+      domain:
+        description: "Domain to locate"
+        required: false
+        default: "offdutylocks.com"
+      port:
+        description: "Port the app listens on"
+        required: false
+        default: "3000"
+
+permissions:
+  contents: read
+
+jobs:
+  railway:
+    name: railway
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Report only whether a credential exists, never its value, so this step
+      # is safe to read in a public log and tells us immediately whether the
+      # rest of the workflow can do anything at all.
+      - name: Credential presence
+        id: creds
+        run: |
+          set -uo pipefail
+          have=0
+          if [ -n "${RAILWAY_API_TOKEN:-}" ]; then
+            echo "RAILWAY_API_TOKEN : present (account/team — full survey possible)"
+            have=1
+          else
+            echo "RAILWAY_API_TOKEN : absent"
+          fi
+          if [ -n "${RAILWAY_TOKEN:-}" ]; then
+            echo "RAILWAY_TOKEN     : present (project scope)"
+            have=1
+          else
+            echo "RAILWAY_TOKEN     : absent"
+          fi
+          echo "have=$have" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Railway credentials"
+            echo ""
+            if [ "$have" = "1" ]; then
+              echo "A Railway token is configured; the diagnosis below is live."
+            else
+              echo "**No Railway token is configured on this repository.**"
+              echo ""
+              echo "Add one under Settings -> Secrets and variables -> Actions:"
+              echo ""
+              echo "| Secret | Where to get it | Scope |"
+              echo "|---|---|---|"
+              echo "| \`RAILWAY_API_TOKEN\` | Railway -> Account Settings -> Tokens | account/team (preferred) |"
+              echo "| \`RAILWAY_TOKEN\` | Railway -> Project -> Settings -> Tokens | single project |"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Explain and stop when there is no credential
+        if: ${{ steps.creds.outputs.have != '1' }}
+        run: |
+          echo "::error::No Railway token is configured, so the Railway API cannot be reached. See the run summary for exactly which secret to add."
+          exit 1
+
+      - name: Run
+        run: |
+          set -uo pipefail
+          ARGS="${{ inputs.mode || 'diagnose' }} --domain ${{ inputs.domain || 'offdutylocks.com' }} --port ${{ inputs.port || '3000' }}"
+          if [ "${{ inputs.apply }}" = "true" ]; then ARGS="$ARGS --yes"; fi
+          echo "railway_ops.py $ARGS"
+          set +e
+          python3 scripts/railway_ops.py $ARGS | tee /tmp/railway.txt
+          rc=$?
+          set -e
+          {
+            echo ""
+            echo "## Railway ${{ inputs.mode || 'diagnose' }}"
+            echo ""
+            echo '```'
+            cat /tmp/railway.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
