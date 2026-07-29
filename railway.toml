@@ -22,7 +22,11 @@ dockerfilePath = "Dockerfile"
 # interpolation, so a literal "$PORT" here would reach gunicorn unexpanded and
 # fail with "'$PORT' is not a valid port number". gunicorn.conf.py reads
 # os.environ["PORT"] in Python instead (falling back to 8080), which is
-# shell-independent and always valid. DATABASE_URL is injected via a reference
+# shell-independent and always valid. That same config also binds [::] rather
+# than 0.0.0.0 where the platform supports it: Railway's private network (which
+# the public edge routes over) is IPv6-only, so an IPv4-only listener passes the
+# healthcheck and still serves 502 + x-railway-fallback on the domain.
+# DATABASE_URL is injected via a reference
 # variable: DATABASE_URL = ${{Postgres.DATABASE_URL}}
 startCommand = "gunicorn --config /app/gunicorn.conf.py wnba_pipeline.web:app"
 

@@ -144,6 +144,22 @@ gunicorn unexpanded and fails with `'$PORT' is not a valid port number`; reading
 the env var in Python avoids that. `railway.web.json` carries the identical
 command and is kept as an alias for any service explicitly pinned to it.
 
+The bind *host* is `[::]` (IPv6) wherever the platform supports it, not
+`0.0.0.0`. Railway's private network — which the public edge routes over — is
+IPv6-only, so an IPv4-only listener is reachable by the healthcheck probe (it
+arrives over IPv4 from 100.64.0.0/10) but *not* by the edge. The symptom of
+getting this wrong is distinctive: the deploy log shows `[1/1] Healthcheck
+succeeded!` while the public domain still returns 502 with an
+`x-railway-fallback: true` response header.
+
+`gunicorn.conf.py` probes the socket at startup rather than hardcoding `[::]`,
+because gunicorn never sets `IPV6_V6ONLY` on the listener it creates — `[::]`
+is dual-stack (IPv4 + IPv6 on one socket) only where `net.ipv6.bindv6only`
+defaults to 0, as it does on Linux. The bind degrades safely: no usable IPv6 →
+`0.0.0.0:PORT`; IPv6 with `bindv6only=1` → both `0.0.0.0:PORT` and `[::]:PORT`;
+otherwise `[::]:PORT` alone. So an IPv4-only environment (a CI container, a
+local box) still serves normally.
+
 **Add / fix the web service:**
 
 1. Railway → New → GitHub Repo → the `off-duty-locks` repo (or reuse the
