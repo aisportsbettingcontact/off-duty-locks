@@ -13,7 +13,7 @@ Run:
     # production (Railway web service): port comes from $PORT via gunicorn.conf.py
     gunicorn --config gunicorn.conf.py wnba_pipeline.web:app
     # local:
-    wnba-pipeline serve --port 8080
+    wnba-pipeline serve --port 3000
 """
 
 from __future__ import annotations

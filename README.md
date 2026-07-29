@@ -133,8 +133,11 @@ gunicorn --config gunicorn.conf.py wnba_pipeline.web:app
 ```
 
 The bind port comes from `os.environ["PORT"]` inside `gunicorn.conf.py` (default
-8080), not from a `$PORT` on the command line — Railway does not shell-expand the
+3000), not from a `$PORT` on the command line — Railway does not shell-expand the
 start command, so a literal `$PORT` would fail with "not a valid port number".
+That default must match the domain's target port in Railway → Settings →
+Networking; see [docs/deployment.md](docs/deployment.md) for why a mismatch
+yields a passing healthcheck and a 502 site at the same time.
 
 The app is read-only (SELECT only), holds no secrets beyond `DATABASE_URL`, and
 renders a friendly empty state when the database has no data yet. The domain

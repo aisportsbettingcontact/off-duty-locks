@@ -35,16 +35,18 @@ RUN pip install --no-cache-dir -e .
 # no port to route to and serves its own 502 with `x-railway-fallback: true`
 # even though the container is healthy and its healthcheck passes.
 #
-# 8080 matches the default in gunicorn.conf.py, so the container listens here
-# whether or not Railway injects PORT. If PORT *is* injected with a different
-# value, gunicorn follows PORT and Railway routes to that value instead — this
-# EXPOSE only supplies the fallback hint.
-EXPOSE 8080
+# 3000 matches BOTH the default in gunicorn.conf.py and the target port
+# configured on the Railway domain — all three must agree. The healthcheck
+# auto-detects whatever port is listening and so passes regardless, but the
+# domain routes only to its configured target port: listening anywhere else
+# gives a "healthcheck succeeded" deploy that still answers 502 with
+# `x-railway-fallback: true`. If PORT *is* injected, gunicorn follows PORT.
+EXPOSE 3000
 
 # Default command: serve the site. This mirrors railway.toml's startCommand and
 # is the fallback if Railway ever runs the image default. Exec form (JSON) so
 # no shell is required: the bind port comes from os.environ["PORT"] inside
-# gunicorn.conf.py (default 8080), not from a shell-expanded "$PORT" on the
+# gunicorn.conf.py (default 3000), not from a shell-expanded "$PORT" on the
 # command line — Railway does not interpolate the start command. The scrapers
 # are NOT started here — they run on GitHub Actions (.github/workflows/scrape.yml).
 CMD ["gunicorn", "--config", "/app/gunicorn.conf.py", "wnba_pipeline.web:app"]

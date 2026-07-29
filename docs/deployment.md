@@ -138,11 +138,32 @@ config), so it starts gunicorn automatically:
 | Web (site) | `railway.toml` (default) | `gunicorn --config /app/gunicorn.conf.py wnba_pipeline.web:app` | public + domain |
 
 The bind port is read from `os.environ["PORT"]` inside `gunicorn.conf.py`
-(default 8080) — **not** from a `$PORT` token in the start command. Railway runs
+(default 3000) — **not** from a `$PORT` token in the start command. Railway runs
 the start command without shell interpolation, so a literal `$PORT` reaches
 gunicorn unexpanded and fails with `'$PORT' is not a valid port number`; reading
 the env var in Python avoids that. `railway.web.json` carries the identical
 command and is kept as an alias for any service explicitly pinned to it.
+
+> **The port must agree in three places:** the fallback in `gunicorn.conf.py`,
+> `EXPOSE` in the `Dockerfile`, and the **target port** on the domain under
+> Railway → Settings → Networking. It is currently **3000** in all three.
+>
+> A mismatch fails in a uniquely misleading way, because Railway uses two
+> independent mechanisms. The **healthcheck** auto-detects whatever port the
+> container is listening on, so it passes no matter what. The **domain** routes
+> only to its configured target port. Listening on 8080 while the domain targets
+> 3000 therefore produces a deploy log that reads:
+>
+> ```
+> Listening at: http://[::]:8080
+> "GET /healthz HTTP/1.1" 200 ... "RailwayHealthCheck/1.0"
+> [1/1] Healthcheck succeeded!
+> ```
+>
+> while every public request returns 502 with `x-railway-fallback: true` — the
+> edge has nothing listening at the port it was told to route to. If you change
+> the target port in the dashboard, change the other two to match, or set a
+> `PORT` service variable (which overrides the `gunicorn.conf.py` default).
 
 The bind *host* is `[::]` (IPv6) wherever the platform supports it, not
 `0.0.0.0`. Railway's private network — which the public edge routes over — is
