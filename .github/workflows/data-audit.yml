@@ -1,0 +1,126 @@
+name: Data Audit
+
+# Deep audit of the rows the site actually serves, and — only when explicitly
+# asked — repair of a split proven to be a duplicate.
+#
+# This is separate from the per-run validation inside the pipeline. That
+# inspects one snapshot before it is written and cannot see a fault that exists
+# only BETWEEN rows. The `ytd` split holding Last-7 numbers is exactly such a
+# fault: every individual run reported PASSED while the published data was
+# mislabelled.
+#
+# `repair` defaults to a dry run. Even with apply=true it can only delete a
+# split it first proves is numerically identical to another for every shared
+# team, so distinct, legitimate data cannot be destroyed by this workflow.
+#
+# DATABASE_URL is consumed but never printed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      repair:
+        description: "Also run repair-data for the duplicated split"
+        type: boolean
+        required: false
+        default: false
+      apply:
+        description: "Actually delete (repair runs dry unless this is true)"
+        type: boolean
+        required: false
+        default: false
+      remove_split:
+        description: "Split to remove if proven duplicate"
+        required: false
+        default: "ytd"
+      against:
+        description: "Split it must be identical to for removal"
+        required: false
+        default: "last7"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: python -m pip install --upgrade pip -q && pip install -e . -q
+
+      - name: Guard — DATABASE_URL must be set
+        run: |
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::DATABASE_URL secret is not set"; exit 1
+          fi
+
+      - name: "Validate — before"
+        id: before
+        run: |
+          set -uo pipefail
+          set +e
+          wnba-pipeline validate-data --season 2026 | tee /tmp/before.txt
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          {
+            echo "## Validation — before"
+            echo ""
+            echo '```'
+            cat /tmp/before.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Repair — remove the duplicated split"
+        if: ${{ inputs.repair }}
+        id: repair
+        run: |
+          set -uo pipefail
+          ARGS="--remove-split ${{ inputs.remove_split }} --against ${{ inputs.against }}"
+          if [ "${{ inputs.apply }}" = "true" ]; then ARGS="$ARGS --yes"; fi
+          echo "running: wnba-pipeline repair-data $ARGS"
+          set +e
+          wnba-pipeline repair-data $ARGS | tee /tmp/repair.txt
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          {
+            echo ""
+            echo "## Repair"
+            echo ""
+            echo '```'
+            cat /tmp/repair.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Validate — after"
+        if: ${{ inputs.repair && inputs.apply }}
+        run: |
+          set -uo pipefail
+          set +e
+          wnba-pipeline validate-data --season 2026 | tee /tmp/after.txt
+          set -e
+          {
+            echo ""
+            echo "## Validation — after"
+            echo ""
+            echo '```'
+            cat /tmp/after.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report
+        if: always()
+        run: |
+          echo "validate(before) exit : ${{ steps.before.outputs.exit_code }}"
+          echo "repair exit           : ${{ steps.repair.outputs.exit_code || 'not run' }}"
+          echo "(exit 4 from validate = the serving tables are inconsistent)"

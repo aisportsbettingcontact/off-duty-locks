@@ -74,9 +74,24 @@ def fetch_team_stats(split: str) -> list[dict[str, Any]]:
     )
 
 
+# How far back the slate reaches. The scrapers publish today and tomorrow, and
+# rows are upserted by game_key, so nothing ever removes a finished game: an
+# unfiltered SELECT grows without bound and the page fills up with history under
+# a "current slate" heading. One day of lookback keeps last night's late tip-offs
+# visible (a game starting 23:00 US local is already tomorrow in UTC, and
+# game_date is UTC) without carrying the rest of the season.
+BETTING_LOOKBACK_DAYS = 1
+
+
 def fetch_betting() -> list[dict[str, Any]]:
+    """The current slate: games from the last ``BETTING_LOOKBACK_DAYS`` onward."""
     cols = ", ".join(db.BETTING_GAMES_COLUMNS)
-    return _rows(f"SELECT {cols} FROM betting_games ORDER BY game_date, game_key")
+    return _rows(
+        f"SELECT {cols} FROM betting_games "
+        "WHERE game_date >= CURRENT_DATE - %s::integer "
+        "ORDER BY game_date, game_key",
+        (BETTING_LOOKBACK_DAYS,),
+    )
 
 
 # --------------------------------------------------------------------------- #
