@@ -205,6 +205,21 @@ query($projectId: String!, $environmentId: String!, $serviceId: String!) {
 }
 """
 
+# The decisive query when configuration looks correct but the edge still 502s.
+# A deployment's status is the *build* outcome: SUCCESS means the image built
+# and the deploy was accepted, not that the process is alive and listening now.
+# A container that starts and then crashes, or never binds the expected port,
+# leaves a SUCCESS deployment with nothing answering behind the route — which
+# is precisely the state we are in. Only the runtime log distinguishes them.
+Q_DEPLOY_LOGS = """
+query($deploymentId: String!, $limit: Int!) {
+  deploymentLogs(deploymentId: $deploymentId, limit: $limit) {
+    timestamp
+    message
+  }
+}
+"""
+
 M_DOMAIN_PORT = """
 mutation($id: String!, $targetPort: Int!) {
   customDomainUpdate(id: $id, input: { targetPort: $targetPort })
@@ -316,6 +331,7 @@ def diagnose(domain: str, expect_port: int) -> dict:
                             "customDomainId": cd.get("id"),
                             "targetPort": cd.get("targetPort"),
                             "latestStatus": (latest or {}).get("status"),
+                            "latestDeploymentId": (latest or {}).get("id"),
                             "deploymentCount": len(deployments),
                         }
 
@@ -351,9 +367,45 @@ def diagnose(domain: str, expect_port: int) -> dict:
         for p in problems:
             print(f"  PROBLEM          : {p}")
     else:
-        print("  no misconfiguration detected in port or deployment status;")
-        print("  if the domain still 502s the instance is failing at runtime —")
-        print("  read the deploy log for the 'Listening at:' line.")
+        print("  no misconfiguration detected in port or deployment status.")
+
+    # When the configuration checks out, the answer is in the runtime log, not
+    # in more configuration. A SUCCESS deployment only means the build was
+    # accepted; the process behind it can still be crashing or bound to the
+    # wrong address. Pull the log and say what it shows.
+    if found.get("latestDeploymentId"):
+        print()
+        print("-" * 72)
+        print(" RUNTIME LOG (latest deployment)")
+        print("-" * 72)
+        logs = try_gql("deploymentLogs", Q_DEPLOY_LOGS,
+                       {"deploymentId": found["latestDeploymentId"], "limit": 120})
+        lines = (logs or {}).get("deploymentLogs") or []
+        if not lines:
+            print("    (no log lines returned)")
+        else:
+            for entry in lines[-60:]:
+                msg = (entry.get("message") or "").rstrip()
+                if msg:
+                    print(f"    {msg}")
+
+            joined = "\n".join((e.get("message") or "") for e in lines)
+            print()
+            bind = [l for l in joined.splitlines() if "Listening at" in l]
+            if bind:
+                print(f"  BIND OBSERVED    : {bind[-1].strip()}")
+                if f":{expect_port}" not in bind[-1]:
+                    print(f"  PROBLEM          : the process is NOT listening on "
+                          f"{expect_port}, which is the domain's target port")
+                    found.setdefault("problems", []).append("bind/target port mismatch")
+            else:
+                print("  BIND OBSERVED    : no 'Listening at' line in the log — the "
+                      "server may never have started")
+            for marker in ("Traceback", "ModuleNotFoundError", "Error", "Killed",
+                           "OOM", "exited with code"):
+                hits = [l for l in joined.splitlines() if marker in l]
+                if hits:
+                    print(f"  {marker:<16} : {hits[-1].strip()[:160]}")
     found["problems"] = problems
     return found
 
