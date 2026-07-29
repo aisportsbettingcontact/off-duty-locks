@@ -5,9 +5,9 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "gunicorn wnba_pipeline.web:app -b 0.0.0.0:$PORT --workers 2 --timeout 60",
+    "startCommand": "gunicorn --config /app/gunicorn.conf.py wnba_pipeline.web:app",
     "healthcheckPath": "/healthz",
-    "healthcheckTimeout": 30,
+    "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE"
   }
 }

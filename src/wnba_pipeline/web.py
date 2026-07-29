@@ -10,8 +10,8 @@ publicly. Missing data renders as a friendly empty state, and a database
 outage returns a clean 503 rather than a stack trace.
 
 Run:
-    # production (Railway web service):
-    gunicorn wnba_pipeline.web:app -b 0.0.0.0:$PORT --workers 2 --timeout 60
+    # production (Railway web service): port comes from $PORT via gunicorn.conf.py
+    gunicorn --config gunicorn.conf.py wnba_pipeline.web:app
     # local:
     wnba-pipeline serve --port 8080
 """

@@ -125,12 +125,16 @@ A small read-only Flask app (`wnba_pipeline.web`) serves the published data:
 - `/api/team-stats?split=last7|ytd` and `/api/betting` — JSON;
 - `/healthz` — health check.
 
-It runs as a **second Railway service** (the first is the betting cron),
-sharing the same Postgres via `DATABASE_URL`, started with:
+It is the Railway service (the scrapers run on GitHub Actions), reading Postgres
+via `DATABASE_URL`, started with:
 
 ```bash
-gunicorn wnba_pipeline.web:app -b 0.0.0.0:$PORT --workers 2 --timeout 60
+gunicorn --config gunicorn.conf.py wnba_pipeline.web:app
 ```
+
+The bind port comes from `os.environ["PORT"]` inside `gunicorn.conf.py` (default
+8080), not from a `$PORT` on the command line — Railway does not shell-expand the
+start command, so a literal `$PORT` would fail with "not a valid port number".
 
 The app is read-only (SELECT only), holds no secrets beyond `DATABASE_URL`, and
 renders a friendly empty state when the database has no data yet. The domain
