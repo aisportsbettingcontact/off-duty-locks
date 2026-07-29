@@ -1,25 +1,32 @@
-# Railway config-as-code for the WNBA pipeline.
+# Railway config-as-code for offdutylocks.com.
 # Reference: https://docs.railway.com/reference/config-as-code
 #
-# The Railway service runs the BETTING feed. VSIN and Action Network are both
-# reachable from Railway's datacenter (verified), so this collects betting
-# markets and publishes them to Postgres on a schedule. Team stats
-# (stats.wnba.com) are datacenter-blocked and must run off-Railway — see
-# docs/deployment.md.
+# Railway's ONE job is to serve the public site. `railway.toml` is the DEFAULT
+# config every service in the project reads unless it is explicitly pointed at
+# another file, so the default MUST be the web server: that way the service that
+# owns the offdutylocks.com domain serves HTTP no matter how it is wired up in
+# the dashboard. A missing/forgotten override then fails *safe* (it serves the
+# site) instead of silently running a non-HTTP job and returning 502.
+#
+# The scrapers do NOT run on Railway anymore. They run on GitHub Actions
+# (.github/workflows/scrape.yml), which publishes betting_games + team_stats to
+# this same Postgres via the DATABASE_URL secret. See docs/deployment.md.
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# One-shot per run: the process fetches, publishes, and exits. NEVER stops
-# Railway from restart-looping the container after a clean exit.
-restartPolicyType = "NEVER"
+# Production WSGI server for the read-only Flask app. Binds Railway's injected
+# $PORT so the edge can route to it (no listener on $PORT == the x-railway
+# -fallback 502). DATABASE_URL is injected via a Postgres reference variable:
+#   DATABASE_URL = ${{Postgres.DATABASE_URL}}
+startCommand = "gunicorn wnba_pipeline.web:app -b 0.0.0.0:$PORT --workers 2 --timeout 60"
 
-# Every 30 minutes — betting lines move through the day. Dial to taste.
-cronSchedule = "*/30 * * * *"
+# Railway probes this until it returns 200 before routing traffic; the web app
+# answers /healthz even when the database is empty.
+healthcheckPath = "/healthz"
+healthcheckTimeout = 30
 
-# Publishes betting_games to Postgres. Requires DATABASE_URL: reference the
-# Postgres service in this project → DATABASE_URL = ${{Postgres.DATABASE_URL}}
-# (Cron services do not run on deploy; trigger a redeploy to run once now.)
-startCommand = "wnba-pipeline betting"
+# Keep the site up: restart the web process if it ever exits.
+restartPolicyType = "ON_FAILURE"

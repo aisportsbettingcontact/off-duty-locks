@@ -1,0 +1,109 @@
+name: Scrape + Publish (DB)
+
+# Publishes the serving tables that offdutylocks.com reads from. This replaces
+# the old Railway betting cron: Railway now only serves the site, and ALL
+# scraping runs here, writing to the same Postgres via the DATABASE_URL secret
+# (set it to the PUBLIC Railway URL — *.proxy.rlwy.net — since the runner is
+# outside Railway's private network).
+#
+#   - betting: VSIN + Action Network are datacenter-reachable, so the live
+#     betting slate publishes fine from a GitHub-hosted runner.
+#   - team-stats: stats.wnba.com (Akamai) blocks datacenter IPs, so a LIVE
+#     team-stats scrape cannot run here. Until a residential/self-hosted runner
+#     is available, team_stats is seeded from the committed fixture on demand
+#     (workflow_dispatch) so the table stays populated. See docs/deployment.md.
+
+on:
+  schedule:
+    # Every 30 min through the US pregame + in-play windows, season months only
+    # (May–Oct). WNBA tip-offs cluster ~23:00–03:00 UTC; lines move all afternoon.
+    - cron: "*/30 12-23 * 5-10 *"
+    - cron: "*/30 0-4 * 5-10 *"
+  workflow_dispatch:
+    inputs:
+      seed_team_stats:
+        description: "Also seed team_stats from the committed fixture"
+        type: boolean
+        required: false
+        default: false
+
+# Never let a slow run overlap the next tick (both write the same rows).
+concurrency:
+  group: wnba-scrape-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Disable switch: set repository variable PIPELINE_ENABLED=false to pause.
+    if: ${{ vars.PIPELINE_ENABLED != 'false' }}
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: python -m pip install --upgrade pip && pip install -e "."
+
+      - name: Guard — DATABASE_URL must be set
+        run: |
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::DATABASE_URL secret is not set. Add the PUBLIC Railway Postgres URL as a repo secret."
+            exit 1
+          fi
+          # Publishing needs the public URL; the internal host is unreachable here.
+          case "$DATABASE_URL" in
+            *railway.internal*)
+              echo "::error::DATABASE_URL points at the INTERNAL Railway host, unreachable from GitHub. Use DATABASE_PUBLIC_URL (*.proxy.rlwy.net)."
+              exit 1;;
+          esac
+
+      - name: Ensure serving schema
+        run: wnba-pipeline db-init
+
+      - name: Publish betting (live — VSIN + Action Network)
+        id: betting
+        run: |
+          set -uo pipefail
+          set +e
+          wnba-pipeline betting > betting_manifest.json
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          cat betting_manifest.json
+
+      - name: Seed team_stats from fixture (on demand)
+        if: ${{ inputs.seed_team_stats }}
+        run: |
+          wnba-pipeline run-team-stats \
+            --fixture fixtures/sanitized/leaguedashteamstats_2026_lastn7.json \
+            --data-root "${RUNNER_TEMP}/seed"
+
+      - name: Run summary
+        if: always()
+        run: |
+          {
+            echo "## Scrape + publish"
+            echo ""
+            echo "**betting exit code:** \`${{ steps.betting.outputs.exit_code }}\`"
+            echo ""
+            echo '```json'
+            cat betting_manifest.json 2>/dev/null || echo "(no manifest)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if betting did not succeed
+        if: ${{ steps.betting.outputs.exit_code != '0' }}
+        run: |
+          echo "::error::betting publish exited ${{ steps.betting.outputs.exit_code }} (0=ok, 3=upstream, 6=storage). See summary."
+          exit 1

@@ -1,9 +1,9 @@
-# Container image for the WNBA team-statistics extraction pipeline (Railway).
+# Container image for offdutylocks.com (Railway).
 #
-# This pipeline is a CLI batch job, not a web server, so Railway's Railpack
-# builder can't infer a start command ("No start command detected") and fails
-# the build. This Dockerfile makes the build deterministic and supplies the
-# start command explicitly.
+# Railway's Railpack builder can't infer a start command for this project
+# ("No start command detected"), so this Dockerfile makes the build
+# deterministic and supplies the start command explicitly. The same image also
+# carries the `wnba-pipeline` CLI, which the GitHub Actions scrapers invoke.
 FROM python:3.11-slim
 
 # The runner emits the run manifest as a single JSON line on stdout and
@@ -25,13 +25,12 @@ COPY . /app
 # fallback path would no longer resolve.
 RUN pip install --no-cache-dir -e .
 
-# The betting feed (Railway's job) writes only to Postgres — no volume needed.
-# If you run team stats in this image, attach a Railway Volume mounted at /data
-# via the dashboard; Railway rejects the Dockerfile VOLUME instruction, so it is
-# intentionally omitted here.
+# The web app is read-only (SELECT against Postgres) — no volume needed. Railway
+# rejects the Dockerfile VOLUME instruction, so it is intentionally omitted.
 
-# Default command: the betting feed (VSIN + Action Network -> Postgres), which
-# is what runs on Railway (see railway.toml's cron + startCommand). Publishing
-# requires DATABASE_URL. Team stats run off-datacenter, e.g.:
-#   wnba-pipeline run-team-stats --publish --database-url "<postgres public url>"
-CMD ["wnba-pipeline", "betting"]
+# Default command: serve the site. This mirrors railway.toml's startCommand and
+# is the fallback if Railway ever runs the image default. Shell form so $PORT
+# expands; ${PORT:-8080} keeps `docker run` working locally without $PORT set.
+# The scrapers are NOT started here — they run on GitHub Actions
+# (.github/workflows/scrape.yml) and publish to the same Postgres.
+CMD gunicorn wnba_pipeline.web:app -b 0.0.0.0:${PORT:-8080} --workers 2 --timeout 60

@@ -82,45 +82,71 @@ blocked in the build sandbox. To confirm it:
 | Enable switch | repo variable `PIPELINE_ENABLED` | enabled |
 | Retention | `storage.Store.prune` args | 50/50/50/200 |
 
-## Railway + Postgres serving layer
+## Architecture: Railway serves, GitHub Actions scrapes
 
-The serving database and the betting feed run in the Railway project
-(`cdcd511e-…`):
+One responsibility per platform, so nothing has to be wired up twice:
+
+| Platform | Job | How |
+|---|---|---|
+| **Railway** | Serve `offdutylocks.com` | `railway.toml` → gunicorn (the web app) + Postgres in the same project |
+| **GitHub Actions** | Scrape + publish the data | `.github/workflows/scrape.yml` → `wnba-pipeline` writes to Postgres via `DATABASE_URL` |
+
+**Why this split:** `railway.toml` is the DEFAULT config every Railway service
+reads, so making that default the *web server* means the service that owns the
+domain serves HTTP no matter how it is wired up — a forgotten override fails
+safe (serves the site) instead of running a non-HTTP job and returning the
+`x-railway-fallback` 502. And team-stats can't run on Railway anyway
+(stats.wnba.com blocks datacenter IPs), so keeping all scraping in Actions puts
+both feeds in one place.
+
+### Postgres serving layer (Railway)
 
 1. **Add Postgres**: project → New → Database → PostgreSQL.
-2. **Reference the URL** into the service:
+2. **Reference the URL** into the web service:
    `DATABASE_URL = ${{Postgres.DATABASE_URL}}`. The schema is created
    automatically on first publish (or run `wnba-pipeline db-init`).
-3. **Betting service** (on Railway): `railway.toml` sets a 30-minute cron
-   running `wnba-pipeline betting`, publishing `betting_games`. VSIN and Action
-   Network are datacenter-reachable, so this works from Railway.
-4. **Team stats** (off-Railway): stats.wnba.com blocks datacenter IPs, so run
-   `wnba-pipeline run-team-stats --publish --database-url "<Postgres PUBLIC
-   url>"` from a residential or self-hosted runner. It publishes `team_stats`
-   (YTD + Last-7) to the same database.
+3. **Give GitHub the PUBLIC URL**: repo → Settings → Secrets and variables →
+   Actions → `DATABASE_URL` = the Railway **public** connection string
+   (`postgresql://…@<name>.proxy.rlwy.net:<port>/railway`). The runner is
+   outside Railway's private network, so the internal `*.railway.internal` host
+   does not resolve there.
 
-`DATABASE_URL` is the only secret — injected by Railway (internal networking)
-or supplied on the command line (public URL) for off-Railway team-stats runs.
-No database credentials are stored in the repository.
+`DATABASE_URL` is the only secret. It is injected by Railway (internal
+networking) for the web service and stored as a GitHub Actions secret (public
+URL) for the scrapers. No database credentials are stored in the repository.
+
+### Scrapers (GitHub Actions — `scrape.yml`)
+
+- **betting**: runs every 30 min through the season's pregame/in-play windows,
+  publishing `betting_games` (VSIN splits + Circa sharp line + Action Network
+  lines). VSIN and Action Network are datacenter-reachable, so this works from a
+  GitHub-hosted runner.
+- **team-stats**: stats.wnba.com blocks datacenter IPs (GitHub-hosted runners
+  included), so a live scrape can't run here yet. Run the workflow manually with
+  **Seed team_stats from fixture = true** to (re)populate `team_stats` from the
+  committed fixture; for live YTD/Last-7 use a residential or self-hosted runner:
+  `wnba-pipeline run-team-stats --publish --database-url "<public url>"`.
+- Pause everything with repository variable `PIPELINE_ENABLED=false`.
 
 ## Web service & custom domain (offdutylocks.com)
 
-The public site is a **second Railway service** in the same project, separate
-from the betting-cron worker. Both build from this repo and share the Postgres
-(`DATABASE_URL`) but run different commands:
+The public site is the Railway service that reads `railway.toml` (its default
+config), so it starts gunicorn and binds `$PORT` automatically:
 
 | Service | Config | Start command | Networking |
 |---|---|---|---|
-| Betting worker | `railway.toml` | `wnba-pipeline betting` (30-min cron) | none (unexposed) |
-| Web (site) | `railway.web.json` | `gunicorn wnba_pipeline.web:app -b 0.0.0.0:$PORT` | public + domain |
+| Web (site) | `railway.toml` (default) | `gunicorn wnba_pipeline.web:app -b 0.0.0.0:$PORT` | public + domain |
 
-**Add the web service:**
+`railway.web.json` carries the same gunicorn command and is kept as an alias for
+any service explicitly pinned to it.
 
-1. Railway → New → GitHub Repo → the same `off-duty-locks` repo.
-2. In its **Settings → Config-as-code**, set the path to `railway.web.json` so
-   it uses the gunicorn start command and the `/healthz` healthcheck — **not**
-   the worker's betting cron. (Or set the start command manually in the
-   dashboard.)
+**Add / fix the web service:**
+
+1. Railway → New → GitHub Repo → the `off-duty-locks` repo (or reuse the
+   existing service that owns the domain).
+2. Leave **Settings → Config-as-code** on the default (`railway.toml`) — it now
+   *is* the web config. (If a service was overridden to run `wnba-pipeline
+   betting`, clear that Custom Start Command so it falls back to the default.)
 3. Add the variable reference `DATABASE_URL = ${{Postgres.DATABASE_URL}}`.
 4. Deploy, then confirm `/healthz` returns 200 and `/` renders.
 
@@ -145,8 +171,9 @@ yet, so it is safe to expose before the first data run.
 - **Code:** `git revert <commit>` and let CI re-run.
 - **A bad accepted snapshot:** see *LKG rollback* in `docs/runbook.md`, or
   `git revert` the extraction commit (data is version-controlled).
-- **Stop all collection immediately:** set `PIPELINE_ENABLED=false` or disable
-  the **Extract** workflow (`docs/runbook.md`, *Disable / re-enable*).
+- **Stop all collection immediately:** set `PIPELINE_ENABLED=false` (gates both
+  **Extract** and **Scrape + Publish**) or disable the workflows in the Actions
+  tab (`docs/runbook.md`, *Disable / re-enable*).
 
 ## Running everything offline
 
