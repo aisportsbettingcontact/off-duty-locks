@@ -29,8 +29,9 @@ RUN pip install --no-cache-dir -e .
 # rejects the Dockerfile VOLUME instruction, so it is intentionally omitted.
 
 # Default command: serve the site. This mirrors railway.toml's startCommand and
-# is the fallback if Railway ever runs the image default. Shell form so $PORT
-# expands; ${PORT:-8080} keeps `docker run` working locally without $PORT set.
-# The scrapers are NOT started here — they run on GitHub Actions
-# (.github/workflows/scrape.yml) and publish to the same Postgres.
-CMD gunicorn wnba_pipeline.web:app -b 0.0.0.0:${PORT:-8080} --workers 2 --timeout 60
+# is the fallback if Railway ever runs the image default. Exec form (JSON) so
+# no shell is required: the bind port comes from os.environ["PORT"] inside
+# gunicorn.conf.py (default 8080), not from a shell-expanded "$PORT" on the
+# command line — Railway does not interpolate the start command. The scrapers
+# are NOT started here — they run on GitHub Actions (.github/workflows/scrape.yml).
+CMD ["gunicorn", "--config", "/app/gunicorn.conf.py", "wnba_pipeline.web:app"]
