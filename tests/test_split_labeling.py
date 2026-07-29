@@ -147,3 +147,130 @@ def test_betting_query_is_bounded(monkeypatch):
 def test_lookback_keeps_late_tipoffs():
     """A full day of lookback, so a game that rolls past midnight UTC survives."""
     assert web.BETTING_LOOKBACK_DAYS >= 1
+
+
+# --------------------------------------------------------------------------- #
+# 3. repair-data — may only delete a split it can prove is a duplicate
+# --------------------------------------------------------------------------- #
+
+class _Col:
+    def __init__(self, name): self.name = name
+
+
+class _FakeCursor:
+    """Minimal psycopg-shaped cursor over an in-memory team_stats table."""
+
+    def __init__(self, store):
+        self.store = store
+        self.description = None
+        self._result = []
+        self.rowcount = 0
+        self.deleted: list[str] = []
+
+    def execute(self, sql, params=()):
+        sql_l = " ".join(sql.split()).lower()
+        if sql_l.startswith("select * from team_stats"):
+            split = params[0]
+            rows = self.store.get(split, [])
+            cols = list(rows[0].keys()) if rows else ["team_name"]
+            self.description = [_Col(c) for c in cols]
+            self._result = [tuple(r.get(c) for c in cols) for r in rows]
+        elif sql_l.startswith("delete from team_stats"):
+            split = params[0]
+            self.rowcount = len(self.store.get(split, []))
+            self.store[split] = []
+            self.deleted.append(split)
+        elif sql_l.startswith("select count(*) from team_stats"):
+            split = params[0]
+            self._result = [(len(self.store.get(split, [])),)]
+        else:  # pragma: no cover - unexpected query
+            raise AssertionError(f"unexpected SQL: {sql}")
+
+    def fetchall(self): return list(self._result)
+    def fetchone(self): return self._result[0] if self._result else None
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+class _FakeConn:
+    def __init__(self, store):
+        self.cur = _FakeCursor(store)
+        self.closed = False
+
+    def cursor(self): return self.cur
+    def close(self): self.closed = True
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+def _repair(monkeypatch, store, **over):
+    from wnba_pipeline import db
+
+    conn = _FakeConn(store)
+    monkeypatch.setattr(db, "connect", lambda *a, **k: conn)
+    args = argparse.Namespace(database_url=None, remove_split="ytd",
+                              against="last7", yes=False)
+    for k, v in over.items():
+        setattr(args, k, v)
+    code = cli._cmd_repair_data(args)
+    return code, conn, store
+
+
+def _identical_store():
+    rows = [{"team_name": "Lynx", "games_played": 7, "wins": 4, "losses": 3,
+             "points": 85.0, "offensive_rating": 104.0}]
+    return {"last7": [dict(r) for r in rows], "ytd": [dict(r) for r in rows]}
+
+
+def _distinct_store():
+    return {
+        "last7": [{"team_name": "Lynx", "games_played": 7, "wins": 4, "losses": 3,
+                   "points": 90.0, "offensive_rating": 108.0}],
+        "ytd": [{"team_name": "Lynx", "games_played": 24, "wins": 15, "losses": 9,
+                 "points": 86.0, "offensive_rating": 104.0}],
+    }
+
+
+def test_repair_refuses_when_splits_are_distinct(monkeypatch):
+    """The safety property: legitimate data must survive."""
+    code, conn, store = _repair(monkeypatch, _distinct_store(), yes=True)
+    assert code != 0
+    assert conn.cur.deleted == [], "must not delete a split that is not a duplicate"
+    assert len(store["ytd"]) == 1
+
+
+def test_repair_dry_run_does_not_delete(monkeypatch):
+    code, conn, store = _repair(monkeypatch, _identical_store())
+    assert code == 0
+    assert conn.cur.deleted == []
+    assert len(store["ytd"]) == 1
+
+
+def test_repair_applies_only_with_yes(monkeypatch):
+    code, conn, store = _repair(monkeypatch, _identical_store(), yes=True)
+    assert code == 0
+    assert conn.cur.deleted == ["ytd"]
+    assert store["ytd"] == []
+    assert len(store["last7"]) == 1, "the source split must be untouched"
+
+
+def test_repair_is_idempotent(monkeypatch):
+    store = _identical_store()
+    _repair(monkeypatch, store, yes=True)
+    code, conn, store = _repair(monkeypatch, store, yes=True)
+    assert code == 0
+    assert conn.cur.deleted == [], "second run has nothing to delete"
+
+
+def test_repair_refuses_when_comparison_split_is_empty(monkeypatch):
+    store = {"last7": [], "ytd": [{"team_name": "Lynx", "games_played": 7,
+                                   "wins": 4, "losses": 3}]}
+    code, conn, _ = _repair(monkeypatch, store, yes=True)
+    assert code != 0
+    assert conn.cur.deleted == []
+
+
+def test_repair_rejects_identical_split_arguments(monkeypatch):
+    code, conn, _ = _repair(monkeypatch, _identical_store(),
+                            remove_split="ytd", against="ytd", yes=True)
+    assert code == cli.EXIT_CONFIG_ERROR

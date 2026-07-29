@@ -313,6 +313,94 @@ def _cmd_validate_data(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_repair_data(args: argparse.Namespace) -> int:
+    """Remove a split that is provably a duplicate of another.
+
+    Deliberately narrow. It re-runs the cross-split check and deletes only when
+    that check FAILS with ``cross.splits_identical`` — i.e. only when the split
+    named by ``--remove-split`` is numerically identical to ``--against`` for
+    every shared team. Legitimate, distinct data therefore cannot be deleted by
+    this command: if the splits differ at all, it refuses and exits non-zero.
+
+    Dry-run by default. ``--yes`` is required to actually write.
+    """
+    from wnba_pipeline import dataquality as dq
+    from wnba_pipeline import db
+
+    target, against = args.remove_split, args.against
+    if target == against:
+        print(json.dumps({"error": "--remove-split and --against must differ"}),
+              file=sys.stderr)
+        return EXIT_CONFIG_ERROR
+
+    try:
+        conn = db.connect(getattr(args, "database_url", None))
+    except Exception as exc:  # noqa: BLE001
+        print(json.dumps({"error": f"cannot connect: {type(exc).__name__}: {exc}"}),
+              file=sys.stderr)
+        return EXIT_CONFIG_ERROR
+
+    width = 66
+    print("=" * width)
+    print(" DATA REPAIR — remove a provably duplicated split")
+    print("=" * width)
+    print(f"  remove split     : {target}")
+    print(f"  proven against   : {against}")
+    print(f"  mode             : {'APPLY (--yes given)' if args.yes else 'DRY RUN'}")
+    print("-" * width)
+
+    try:
+        with conn, conn.cursor() as cur:
+            def rows(split):
+                cur.execute("SELECT * FROM team_stats WHERE split = %s", (split,))
+                cols = [d.name for d in cur.description]
+                return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+            target_rows, against_rows = rows(target), rows(against)
+            print(f"  {against:<16} : {len(against_rows)} rows")
+            print(f"  {target:<16} : {len(target_rows)} rows")
+
+            if not target_rows:
+                print(f"  RESULT: nothing to do — '{target}' has no rows")
+                return EXIT_OK
+            if not against_rows:
+                print(f"  RESULT: REFUSED — '{against}' has no rows, so '{target}' "
+                      "cannot be proven a duplicate")
+                return EXIT_VALIDATION_FAILED
+
+            findings = dq.check_cross_split(against_rows, target_rows,
+                                            last_split=against)
+            identical = any(f.code == "cross.splits_identical" for f in findings)
+            for f in findings:
+                print(f"    {f.severity:<5} {f.code:<34} {f.message}")
+            print("-" * width)
+
+            if not identical:
+                print(f"  RESULT: REFUSED — '{target}' is not a proven duplicate of "
+                      f"'{against}'. Nothing deleted.")
+                return EXIT_VALIDATION_FAILED
+
+            if not args.yes:
+                print(f"  RESULT: DRY RUN — would delete {len(target_rows)} rows "
+                      f"from split '{target}'. Re-run with --yes to apply.")
+                return EXIT_OK
+
+            cur.execute("DELETE FROM team_stats WHERE split = %s", (target,))
+            deleted = cur.rowcount
+            cur.execute("SELECT count(*) FROM team_stats WHERE split = %s", (target,))
+            remaining = (cur.fetchone() or [0])[0]
+            print(f"  deleted          : {deleted} rows")
+            print(f"  remaining        : {remaining} rows in '{target}'")
+            print(f"  RESULT: APPLIED — '{target}' removed; the site now renders an "
+                  "empty state there instead of mislabelled numbers")
+            return EXIT_OK
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _cmd_db_init(args: argparse.Namespace) -> int:
     """Create the serving-layer schema in the target database (idempotent)."""
     from wnba_pipeline import db
@@ -477,6 +565,20 @@ def build_parser() -> argparse.ArgumentParser:
     vd_p.add_argument("--json", action="store_true", dest="as_json",
                       help="emit findings as JSON lines instead of a report")
     vd_p.set_defaults(func=_cmd_validate_data)
+
+    # repair-data: delete a split only when it is provably a duplicate.
+    rp_p = sub.add_parser(
+        "repair-data",
+        help="remove a split that is provably a duplicate of another (dry-run by default)")
+    rp_p.add_argument("--database-url", default=None,
+                      help="Postgres connection string (default: $DATABASE_URL)")
+    rp_p.add_argument("--remove-split", default="ytd",
+                      help="split to remove if proven duplicate (default: ytd)")
+    rp_p.add_argument("--against", default="last7",
+                      help="split it must be identical to for removal (default: last7)")
+    rp_p.add_argument("--yes", action="store_true",
+                      help="actually delete; without this the command only reports")
+    rp_p.set_defaults(func=_cmd_repair_data)
 
     # betting: VSIN + Action Network -> betting_games.
     bet_p = sub.add_parser(
