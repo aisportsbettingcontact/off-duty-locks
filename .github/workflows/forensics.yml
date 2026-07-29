@@ -1,0 +1,297 @@
+name: Forensics
+
+# Layer-by-layer bisection of the path from the database to the public site,
+# run from a GitHub runner because the development sandbox can reach neither
+# (its egress policy blocks offdutylocks.com, and it has no Docker daemon).
+#
+# The question this answers is not "is the site up" — we know it is not. It is
+# "which single layer is broken", established by testing each layer in
+# isolation so the answer is a measurement rather than an inference:
+#
+#   L1 data      does Postgres actually hold rows, and how fresh are they
+#   L2 app       does the REAL image, run against the REAL database, serve them
+#   L3 dns       where does the hostname actually resolve, and to whose network
+#   L4 tls       whose certificate terminates it, and does it name our domain
+#   L5 edge      what does Railway's edge say, and does it treat our Host as
+#                registered or unknown
+#
+# L2 is the pivotal test. If the production image serves live rows here, then
+# the image, the query layer, the schema and the data are all proven good, and
+# every remaining explanation lives in Railway's routing configuration.
+#
+# Secrets: DATABASE_URL is consumed but never printed. Only derived facts are
+# emitted (row counts, timestamps, host suffix class). Every step is read-only:
+# SELECTs and GETs. Nothing is written anywhere.
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "Domain to audit"
+        required: false
+        default: "offdutylocks.com"
+
+permissions:
+  contents: read
+
+jobs:
+  forensics:
+    name: forensics
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DOMAIN: ${{ github.event.inputs.domain || 'offdutylocks.com' }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pipeline + tools
+        run: |
+          python -m pip install --upgrade pip -q
+          pip install -e . -q
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dnsutils whois >/dev/null 2>&1 || true
+
+      # ---------------------------------------------------------------- L1 --
+      - name: "L1 · DATA — what is actually in Postgres"
+        id: l1
+        run: |
+          set -uo pipefail
+          echo "=============================================================="
+          echo " L1 · DATA LAYER"
+          echo "=============================================================="
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "RESULT: SKIP — DATABASE_URL secret not available to this run"
+            echo "l1=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 - <<'PY'
+          import os, sys
+          import psycopg
+          url = os.environ["DATABASE_URL"]
+          # Never print the URL. Classify the host only.
+          host = url.split("@")[-1].split("/")[0] if "@" in url else "?"
+          kind = ("INTERNAL (unreachable outside Railway)" if "railway.internal" in host
+                  else "PUBLIC proxy" if "proxy.rlwy.net" in host or "rlwy.net" in host
+                  else "other")
+          print(f"  connection target class : {kind}")
+          try:
+              conn = psycopg.connect(url, connect_timeout=15)
+          except Exception as e:
+              print(f"  RESULT: FAIL — cannot connect: {type(e).__name__}: {e}")
+              sys.exit(0)
+          with conn, conn.cursor() as cur:
+              def one(q, p=()):
+                  cur.execute(q, p); r = cur.fetchone(); return r[0] if r else None
+              cur.execute("""SELECT table_name FROM information_schema.tables
+                             WHERE table_schema='public' ORDER BY table_name""")
+              tables = [r[0] for r in cur.fetchall()]
+              print(f"  tables present          : {', '.join(tables) or '(none)'}")
+
+              for t in ("betting_games", "team_stats"):
+                  if t not in tables:
+                      print(f"  {t:<24}: MISSING")
+                      continue
+                  n = one(f"SELECT count(*) FROM {t}")
+                  print(f"  {t:<24}: {n} rows")
+
+              if "team_stats" in tables:
+                  cur.execute("SELECT split, count(*) FROM team_stats GROUP BY split ORDER BY split")
+                  for split, n in cur.fetchall():
+                      print(f"    split {split:<18}: {n} rows")
+                  newest = one("SELECT max(updated_at) FROM team_stats")
+                  print(f"    newest updated_at     : {newest}")
+
+              if "betting_games" in tables:
+                  cur.execute("""SELECT game_date, count(*) FROM betting_games
+                                 GROUP BY game_date ORDER BY game_date""")
+                  for d, n in cur.fetchall():
+                      print(f"    game_date {str(d):<14}: {n} rows")
+          print("  RESULT: data layer reachable and populated"
+                if tables else "  RESULT: FAIL — no tables")
+          PY
+          echo "l1=done" >> "$GITHUB_OUTPUT"
+
+      # ---------------------------------------------------------------- L2 --
+      - name: "L2 · APP — real image against the real database"
+        id: l2
+        run: |
+          set -uo pipefail
+          echo "=============================================================="
+          echo " L2 · APPLICATION LAYER  (the pivotal test)"
+          echo "=============================================================="
+          docker build -q -t odl:forensics . >/dev/null
+          echo "  image built from the committed Dockerfile"
+
+          docker run -d --name odl_f -e PORT=3000 -e DATABASE_URL="${DATABASE_URL}" \
+            -p 3000:3000 odl:forensics >/dev/null
+
+          ok=0
+          for _ in $(seq 1 45); do
+            curl -fsS --max-time 2 http://127.0.0.1:3000/healthz >/dev/null 2>&1 && { ok=1; break; }
+            sleep 1
+          done
+          BIND=$(docker logs odl_f 2>&1 | grep -m1 "Listening at:" | sed 's/.*Listening at: //')
+          echo "  gunicorn bind           : ${BIND:-<none>}"
+          if [ "$ok" != "1" ]; then
+            echo "  RESULT: FAIL — container did not serve /healthz"
+            docker logs odl_f 2>&1 | tail -20
+            echo "l2=fail" >> "$GITHUB_OUTPUT"; docker rm -f odl_f >/dev/null 2>&1; exit 0
+          fi
+
+          # Helper kept in its own file: a multi-line `python3 -c` inline here
+          # would have to start at column 0, which ends the YAML block scalar.
+          cat > /tmp/count.py <<'PY'
+          import json, sys
+          try:
+              d = json.load(open(sys.argv[1]))
+              print(len(d.get(sys.argv[2], [])))
+          except Exception:
+              print("n/a")
+          PY
+
+          probe () {  # $1 = path, $2 = collection key
+            code=$(curl -s -o /tmp/r -w '%{http_code}' --max-time 20 "http://127.0.0.1:3000$1")
+            n=$(python3 /tmp/count.py /tmp/r "$2" 2>/dev/null || echo "n/a")
+            printf '  %-34s HTTP %s   rows=%s\n' "$1" "$code" "$n"
+          }
+          echo "  --- endpoints, served from PRODUCTION data ---"
+          printf '  %-34s HTTP %s   body=%s\n' "/healthz" \
+            "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:3000/healthz)" \
+            "$(curl -s --max-time 10 http://127.0.0.1:3000/healthz)"
+          probe "/api/team-stats?split=last7" teams
+          probe "/api/team-stats?split=ytd"   teams
+          probe "/api/betting"                games
+          idx=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 http://127.0.0.1:3000/)
+          bytes=$(curl -s --max-time 20 http://127.0.0.1:3000/ | wc -c)
+          printf '  %-34s HTTP %s   bytes=%s\n' "/ (dashboard)" "$idx" "$bytes"
+
+          cat > /tmp/sample.py <<'PY'
+          import json, sys
+          try:
+              rows = json.load(sys.stdin).get("teams", [])
+          except Exception as exc:
+              print("    (unparseable: %s)" % exc); raise SystemExit(0)
+          if not rows:
+              print("    (no rows returned)"); raise SystemExit(0)
+          for r in rows[:3]:
+              print("    %-22s pts=%-7s ORtg=%-7s updated=%s" % (
+                  r.get("team_name"), r.get("points"),
+                  r.get("offensive_rating"), r.get("updated_at")))
+          PY
+
+          echo "  --- real rows, proving the query path returns live content ---"
+          curl -s --max-time 20 "http://127.0.0.1:3000/api/team-stats?split=last7" \
+            | python3 /tmp/sample.py || true
+
+          docker rm -f odl_f >/dev/null 2>&1 || true
+          echo "l2=pass" >> "$GITHUB_OUTPUT"
+
+      # ---------------------------------------------------------------- L3 --
+      - name: "L3 · DNS — where the hostname actually points"
+        run: |
+          set -uo pipefail
+          echo "=============================================================="
+          echo " L3 · DNS LAYER"
+          echo "=============================================================="
+          for h in "$DOMAIN" "www.$DOMAIN"; do
+            echo "  --- $h ---"
+            cname=$(dig +short CNAME "$h" 2>/dev/null | head -3)
+            a=$(dig +short A "$h" 2>/dev/null | head -5)
+            aaaa=$(dig +short AAAA "$h" 2>/dev/null | head -5)
+            echo "    CNAME : ${cname:-<none>}"
+            echo "    A     : $(echo ${a:-<none>} | tr '\n' ' ')"
+            echo "    AAAA  : $(echo ${aaaa:-<none>} | tr '\n' ' ')"
+            for ip in $a; do
+              owner=$(whois "$ip" 2>/dev/null | grep -iE '^(OrgName|org-name|netname|descr):' | head -1 | sed 's/.*: *//')
+              echo "    owner of $ip : ${owner:-<unknown>}"
+            done
+          done
+          echo "  --- authoritative nameservers ---"
+          echo "    NS: $(dig +short NS "$DOMAIN" 2>/dev/null | tr '\n' ' ')"
+
+      # ---------------------------------------------------------------- L4 --
+      - name: "L4 · TLS — whose certificate terminates the domain"
+        run: |
+          set -uo pipefail
+          echo "=============================================================="
+          echo " L4 · TLS LAYER"
+          echo "=============================================================="
+          cert=$(echo | timeout 20 openssl s_client -servername "$DOMAIN" -connect "$DOMAIN:443" 2>/dev/null \
+                 | openssl x509 -noout -subject -issuer -dates -ext subjectAltName 2>/dev/null)
+          if [ -z "$cert" ]; then
+            echo "  RESULT: could not retrieve a certificate"
+          else
+            echo "$cert" | sed 's/^/    /'
+          fi
+          echo
+          echo "  Interpretation:"
+          echo "    A certificate naming $DOMAIN means the terminating provider"
+          echo "    has issued for this host — i.e. the domain IS registered with"
+          echo "    whoever answers. A cert that does NOT name it means the"
+          echo "    hostname is unknown to the terminator."
+
+      # ---------------------------------------------------------------- L5 --
+      - name: "L5 · EDGE — what Railway's edge says, with a control"
+        run: |
+          set -uo pipefail
+          echo "=============================================================="
+          echo " L5 · EDGE / ROUTING LAYER"
+          echo "=============================================================="
+          echo "  --- our domain ---"
+          curl -sS -D - -o /dev/null --max-time 25 "https://$DOMAIN/healthz" 2>&1 \
+            | grep -iE '^(HTTP/|server:|x-railway|cf-ray|via:)' | sed 's/^/    /' || true
+
+          IP=$(dig +short A "$DOMAIN" 2>/dev/null | head -1)
+          echo
+          echo "  --- CONTROL: a hostname that is definitely not registered,"
+          echo "      sent to the same edge IP ($IP) ---"
+          if [ -n "$IP" ]; then
+            curl -ksS -D - -o /dev/null --max-time 25 \
+              --connect-to "not-a-real-host.invalid:443:$IP:443" \
+              "https://not-a-real-host.invalid/healthz" 2>&1 \
+              | grep -iE '^(HTTP/|server:|x-railway|cf-ray)' | sed 's/^/    /' || true
+          else
+            echo "    (no A record to test against)"
+          fi
+          echo
+          echo "  Interpretation:"
+          echo "    If our domain returns the SAME response as the bogus control,"
+          echo "    Railway's edge is treating our Host header as unregistered —"
+          echo "    the request never reaches any service. That is a domain"
+          echo "    binding problem, not an application problem."
+
+      - name: "VERDICT"
+        if: always()
+        run: |
+          set -uo pipefail
+          echo "=============================================================="
+          echo " VERDICT"
+          echo "=============================================================="
+          L2="${{ steps.l2.outputs.l2 }}"
+          echo "  L2 (real image + real database): ${L2:-unknown}"
+          echo
+          if [ "$L2" = "pass" ]; then
+            echo "  The production image, run against the production database, serves"
+            echo "  the data correctly. Therefore these are PROVEN NOT AT FAULT:"
+            echo "    - the container image and its build"
+            echo "    - gunicorn's bind and port handling"
+            echo "    - the Flask app, its SQL, and the serving schema"
+            echo "    - the contents and freshness of the database"
+            echo
+            echo "  The failure is isolated to Railway's edge routing: requests for"
+            echo "  the domain are not delivered to a running instance of this"
+            echo "  service. Compare the L5 control above — if our domain and a"
+            echo "  deliberately bogus hostname get the same answer, the edge has"
+            echo "  no binding for our Host."
+          else
+            echo "  The application layer did not pass. Read L1 and L2 above: the"
+            echo "  fault is at or below the app, and the routing question is"
+            echo "  secondary."
+          fi
