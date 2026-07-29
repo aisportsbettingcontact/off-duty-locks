@@ -189,7 +189,7 @@ query {
 Q_DOMAINS = """
 query($projectId: String!, $environmentId: String!, $serviceId: String!) {
   domains(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId) {
-    customDomains { id domain status targetPort }
+    customDomains { id domain targetPort }
     serviceDomains { id domain targetPort }
   }
 }
@@ -256,6 +256,14 @@ def diagnose(domain: str, expect_port: int) -> dict:
         return {}
 
     found: dict = {}
+    # Track whether the domains query ever actually succeeded. Without this, a
+    # query that failed for every service produces an empty domain list, and an
+    # empty domain list reads identically to "the domain is attached nowhere" —
+    # which is a completely different, and much more alarming, conclusion. The
+    # first successful run reported exactly that false finding because the
+    # query was rejected on a schema error.
+    domains_ok = 0
+    domains_failed = 0
     for proj in projects:
         print(f"\n  project: {proj.get('name')}  ({proj.get('id')})")
         envs = edges(proj, "environments")
@@ -270,6 +278,10 @@ def diagnose(domain: str, expect_port: int) -> dict:
 
                 dom = try_gql(f"domains({svc.get('name')}/{env.get('name')})",
                               Q_DOMAINS, variables)
+                if dom is None:
+                    domains_failed += 1
+                else:
+                    domains_ok += 1
                 custom = ((dom or {}).get("domains") or {}).get("customDomains") or []
                 service_domains = ((dom or {}).get("domains") or {}).get("serviceDomains") or []
 
@@ -295,7 +307,7 @@ def diagnose(domain: str, expect_port: int) -> dict:
                           f"-> targetPort {sd.get('targetPort')}")
                 for cd in custom:
                     print(f"      custom domain     : {cd.get('domain')} "
-                          f"-> targetPort {cd.get('targetPort')}  status {cd.get('status')}")
+                          f"-> targetPort {cd.get('targetPort')}")
                     if (cd.get("domain") or "").lower() == domain.lower():
                         found = {
                             "projectId": proj["id"], "projectName": proj.get("name"),
@@ -310,8 +322,14 @@ def diagnose(domain: str, expect_port: int) -> dict:
     print("\n" + "=" * 72)
     print(" FINDING")
     print("=" * 72)
+    print(f"  domain queries   : {domains_ok} succeeded, {domains_failed} failed")
     if not found:
-        print(f"  {domain} is not attached to any service visible to this token.")
+        if domains_ok == 0:
+            print(f"  INCONCLUSIVE — every domain query failed, so we never saw the")
+            print(f"  domain list. This says nothing about where {domain} is")
+            print(f"  attached; fix the errors above and re-run.")
+        else:
+            print(f"  {domain} is not attached to any service visible to this token.")
         return {}
 
     print(f"  owning service   : {found['serviceName']} "
