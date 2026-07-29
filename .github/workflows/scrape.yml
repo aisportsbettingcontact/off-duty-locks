@@ -89,6 +89,33 @@ jobs:
             --fixture fixtures/sanitized/leaguedashteamstats_2026_lastn7.json \
             --data-root "${RUNNER_TEMP}/seed"
 
+      # Audit what is actually in the serving tables, after publishing. This is
+      # a different question from the per-run validation the pipeline already
+      # does: that inspects one snapshot before it is written and cannot see a
+      # fault that only exists BETWEEN rows — most importantly two splits
+      # derived from the same source, which is how `ytd` came to hold Last-7
+      # numbers while every individual run reported PASSED.
+      - name: Validate the serving tables
+        id: validate
+        run: |
+          set -uo pipefail
+          set +e
+          wnba-pipeline validate-data --season 2026
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Surface validation findings in the summary
+        if: always()
+        run: |
+          set -uo pipefail
+          {
+            echo "## Data validation"
+            echo ""
+            echo '```'
+            wnba-pipeline validate-data --season 2026 2>&1 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Run summary
         if: always()
         run: |
@@ -106,4 +133,10 @@ jobs:
         if: ${{ steps.betting.outputs.exit_code != '0' }}
         run: |
           echo "::error::betting publish exited ${{ steps.betting.outputs.exit_code }} (0=ok, 3=upstream, 6=storage). See summary."
+          exit 1
+
+      - name: Fail if the serving tables are internally inconsistent
+        if: ${{ steps.validate.outputs.exit_code != '0' }}
+        run: |
+          echo "::error::validate-data exited ${{ steps.validate.outputs.exit_code }} — the site would publish inconsistent data. See the Data validation section of the summary."
           exit 1

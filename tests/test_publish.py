@@ -101,7 +101,16 @@ def test_publish_failure_does_not_fail_the_run(tmp_path):
     assert manifest.publish_result == "FAILED:RuntimeError"
 
 
-def test_run_team_stats_cli_runs_both_splits(tmp_path, capsys):
+def test_run_team_stats_from_a_fixture_publishes_only_its_own_window(tmp_path, capsys):
+    """A fixture may only populate the split it was captured at.
+
+    This previously asserted that one fixture run produced BOTH splits, which
+    is what put Last-7 numbers into `ytd` in production: the fixture below is a
+    Last-7 capture (its own `parameters.LastNGames` is 7), so publishing it as
+    Year-to-Date labels the same rows as a full season. Live runs still cover
+    both windows — there each window is a separate request — and that is
+    asserted in tests/test_split_labeling.py.
+    """
     from wnba_pipeline.__main__ import main
 
     fixture = "fixtures/sanitized/leaguedashteamstats_2026_lastn7.json"
@@ -110,5 +119,6 @@ def test_run_team_stats_cli_runs_both_splits(tmp_path, capsys):
     assert rc == EXIT_OK
     lines = capsys.readouterr().out.strip().splitlines()
     keys = {json.loads(line)["extractionKey"] for line in lines}
-    assert any("lastn=7" in k for k in keys)   # Last 7 Games split
-    assert any("lastn=0" in k for k in keys)   # Year-to-Date split
+    assert any("lastn=7" in k for k in keys)          # the window it was captured at
+    assert not any("lastn=0" in k for k in keys), (
+        "a Last-7 fixture must not be published as Year-to-Date")

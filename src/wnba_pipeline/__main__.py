@@ -38,6 +38,7 @@ from wnba_pipeline import __version__, contract
 from wnba_pipeline.contract import (
     EXIT_CONFIG_ERROR,
     EXIT_OK,
+    EXIT_VALIDATION_FAILED,
     ExtractionParams,
     FreshnessState,
 )
@@ -111,13 +112,51 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return exit_code
 
 
+def _fixture_last_n_games(fixture_path: str | None) -> int | None:
+    """The LastNGames the fixture itself declares, or None if it does not say.
+
+    A recorded stats.wnba.com envelope carries the parameters it was captured
+    with. That is the only trustworthy statement of which window the rows
+    describe, and it is what makes the guard in `_cmd_run_team_stats` possible.
+    """
+    if not fixture_path:
+        return None
+    try:
+        with open(fixture_path, "rb") as fh:
+            payload = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return None
+    params = payload.get("parameters") or payload.get("Parameters") or {}
+    value = params.get("LastNGames")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value.strip())
+    return None
+
+
 def _cmd_run_team_stats(args: argparse.Namespace) -> int:
     """Run BOTH splits — Last-N (default 7) and Year-to-Date (LastNGames=0) —
     publishing each, so the site's 'Last 7 Games' and 'Year-to-Date' sections
     stay in sync. Returns the highest-severity exit code across the splits.
 
     Each split is a full, independent locked run with its own manifest emitted
-    on stdout (one JSON line per split)."""
+    on stdout (one JSON line per split).
+
+    Live, each window is a separate request with its own LastNGames, so the two
+    splits genuinely describe different periods. In **fixture** mode there is
+    only one recorded file, and it was captured at one window — running both
+    windows against it publishes the same numbers under two different split
+    labels. That is how `ytd` came to hold Last-7 data: one
+    `run-team-stats --fixture <last7 file>` wrote both splits from that file,
+    and per-snapshot validation cannot see it because each snapshot is
+    individually valid.
+
+    So in fixture mode we publish only the window the fixture attests to, and
+    say plainly which windows were skipped and why.
+    """
     import dataclasses
 
     publish_fn = _make_publish_fn(args)
@@ -126,6 +165,45 @@ def _cmd_run_team_stats(args: argparse.Namespace) -> int:
     for window in (args.last_n_games, 0):
         if window not in windows:
             windows.append(window)
+
+    fixture_window = _fixture_last_n_games(getattr(args, "fixture", None))
+    if getattr(args, "fixture", None):
+        if fixture_window is None:
+            skipped = [w for w in windows if w != args.last_n_games]
+            windows = [args.last_n_games]
+            if skipped:
+                print(json.dumps({
+                    "event": "window_skipped",
+                    "reason": "fixture does not declare LastNGames; refusing to "
+                              "label it as another window",
+                    "fixture": args.fixture,
+                    "ran": windows,
+                    "skipped": skipped,
+                }), file=sys.stderr)
+        else:
+            skipped = [w for w in windows if w != fixture_window]
+            windows = [w for w in windows if w == fixture_window]
+            if skipped:
+                print(json.dumps({
+                    "event": "window_skipped",
+                    "reason": "fixture was captured at a single window; publishing "
+                              "it under another split label would mislabel the data",
+                    "fixture": args.fixture,
+                    "fixtureLastNGames": fixture_window,
+                    "ran": windows,
+                    "skipped": skipped,
+                }), file=sys.stderr)
+            if not windows:
+                print(json.dumps({
+                    "error": "fixture window mismatch",
+                    "fixtureLastNGames": fixture_window,
+                    "requested": [args.last_n_games, 0],
+                    "hint": "pass --last-n-games %d to match the fixture, or use a "
+                            "fixture captured at the window you want"
+                            % fixture_window,
+                }), file=sys.stderr)
+                return EXIT_CONFIG_ERROR
+
     worst = EXIT_OK
     for window in windows:
         params = dataclasses.replace(base, last_n_games=window)
@@ -138,6 +216,101 @@ def _cmd_run_team_stats(args: argparse.Namespace) -> int:
         )
         worst = max(worst, code)
     return worst
+
+
+def _cmd_validate_data(args: argparse.Namespace) -> int:
+    """Audit the serving tables the site reads. Read-only: SELECTs only.
+
+    Extraction validation runs before anything is written and sees one snapshot
+    at a time. This runs after, over the rows actually being served, and can
+    therefore catch the class of fault a single snapshot cannot expose — most
+    importantly two splits that were derived from the same source and so carry
+    identical numbers under different labels.
+    """
+    from wnba_pipeline import dataquality as dq
+    from wnba_pipeline import db
+    from wnba_pipeline.runner import EXPECTED_TEAMS_FIXTURE_DIR
+
+    expected: list[str] | None = None
+    fixture = EXPECTED_TEAMS_FIXTURE_DIR / f"{args.season}.json"
+    if fixture.exists():
+        try:
+            blob = json.loads(fixture.read_text(encoding="utf-8"))
+            teams = blob.get("teams") if isinstance(blob, dict) else blob
+            if isinstance(teams, list):
+                expected = [t.get("team_name") if isinstance(t, dict) else str(t)
+                            for t in teams]
+                expected = [t for t in expected if t]
+        except (OSError, json.JSONDecodeError, AttributeError):
+            expected = None
+
+    try:
+        conn = db.connect(getattr(args, "database_url", None))
+    except Exception as exc:  # noqa: BLE001 - report, do not traceback
+        print(json.dumps({"error": f"cannot connect: {type(exc).__name__}: {exc}"}),
+              file=sys.stderr)
+        return EXIT_CONFIG_ERROR
+
+    try:
+        with conn, conn.cursor() as cur:
+            def rows(sql, params=()):
+                cur.execute(sql, params)
+                cols = [d.name for d in cur.description]
+                return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+            cur.execute("SELECT DISTINCT split FROM team_stats ORDER BY split")
+            splits = [r[0] for r in cur.fetchall()]
+            by_split = {
+                s: rows("SELECT * FROM team_stats WHERE split = %s", (s,))
+                for s in splits
+            }
+            betting = rows("SELECT * FROM betting_games")
+            cur.execute("SELECT max(updated_at) FROM team_stats")
+            newest = (cur.fetchone() or [None])[0]
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001 - already reporting
+            pass
+
+    now = datetime.now(timezone.utc)
+    findings = dq.run_all(by_split, betting, newest, now,
+                          expected_teams=expected, last_split=args.last_split)
+
+    if getattr(args, "as_json", False):
+        for f in findings:
+            print(json.dumps({"severity": f.severity, "code": f.code,
+                              "message": f.message, "detail": f.detail}))
+    else:
+        width = 66
+        print("=" * width)
+        print(" DATA VALIDATION — serving tables")
+        print("=" * width)
+        print(f"  splits           : {', '.join(splits) or '(none)'}")
+        print(f"  betting rows     : {len(betting)}")
+        print(f"  expected teams   : "
+              f"{len(expected) if expected else 'unknown (no fixture)'}")
+        print("-" * width)
+        for sev in (dq.FAIL, dq.WARN, dq.INFO):
+            group = [f for f in findings if f.severity == sev]
+            if not group:
+                continue
+            print(f"  {sev} ({len(group)})")
+            for f in group:
+                print(f"    {f.code:<34} {f.message}")
+        print("-" * width)
+
+    worst = dq.worst_severity(findings)
+    n_fail = sum(1 for f in findings if f.severity == dq.FAIL)
+    n_warn = sum(1 for f in findings if f.severity == dq.WARN)
+    if not getattr(args, "as_json", False):
+        print(f"  RESULT: {worst}   ({n_fail} FAIL, {n_warn} WARN)")
+
+    if worst == dq.FAIL:
+        return EXIT_VALIDATION_FAILED
+    if worst == dq.WARN and getattr(args, "warn_is_failure", False):
+        return EXIT_VALIDATION_FAILED
+    return EXIT_OK
 
 
 def _cmd_db_init(args: argparse.Namespace) -> int:
@@ -288,6 +461,22 @@ def build_parser() -> argparse.ArgumentParser:
     db_p.add_argument("--database-url", default=None,
                       help="Postgres connection string (default: $DATABASE_URL)")
     db_p.set_defaults(func=_cmd_db_init)
+
+    # validate-data: read-only audit of what the site is actually serving.
+    vd_p = sub.add_parser(
+        "validate-data",
+        help="audit the serving tables for internal consistency (read-only)")
+    vd_p.add_argument("--database-url", default=None,
+                      help="Postgres connection string (default: $DATABASE_URL)")
+    vd_p.add_argument("--season", default=ExtractionParams().season,
+                      help="season whose expected team set to check against")
+    vd_p.add_argument("--last-split", default="last7",
+                      help="the Last-N split label to compare against ytd")
+    vd_p.add_argument("--warn-is-failure", action="store_true",
+                      help="exit non-zero on WARN as well as FAIL")
+    vd_p.add_argument("--json", action="store_true", dest="as_json",
+                      help="emit findings as JSON lines instead of a report")
+    vd_p.set_defaults(func=_cmd_validate_data)
 
     # betting: VSIN + Action Network -> betting_games.
     bet_p = sub.add_parser(
