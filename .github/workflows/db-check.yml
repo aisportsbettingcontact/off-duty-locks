@@ -1,0 +1,31 @@
+name: DB Populate + Verify (one-off)
+
+# Runs on push to the throwaway claude/db-check branch. Creates the serving
+# schema, publishes a live betting slate, seeds team stats from the committed
+# fixture, and prints the resulting row counts. Uses the DATABASE_URL repo
+# secret (must be the PUBLIC Railway URL). Read/write to the serving tables only.
+on:
+  push:
+    branches: [claude/db-check]
+  workflow_dispatch:
+
+jobs:
+  populate:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pipeline
+        run: pip install -e .
+      - name: Create schema
+        run: wnba-pipeline db-init
+      - name: Publish betting (live — VSIN + Action Network)
+        run: wnba-pipeline betting
+      - name: Seed team stats from fixture (Last-7 + Year-to-Date)
+        run: wnba-pipeline run-team-stats --fixture fixtures/sanitized/leaguedashteamstats_2026_lastn7.json --data-root "${RUNNER_TEMP}/seed"
+      - name: Verify row counts
+        run: python db_check.py
