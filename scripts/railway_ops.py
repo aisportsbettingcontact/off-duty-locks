@@ -220,6 +220,26 @@ query($deploymentId: String!, $limit: Int!) {
 }
 """
 
+# The service's environment variables. gunicorn.conf.py reads PORT and falls
+# back to 3000, so a PORT variable set on the service silently overrides the
+# repository's default — which is how a container built with EXPOSE 3000 ends
+# up listening on 8080 while the domain routes to 3000.
+Q_VARIABLES = """
+query($projectId: String!, $environmentId: String!, $serviceId: String!) {
+  variables(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId)
+}
+"""
+
+M_VARIABLE_UPSERT = """
+mutation($projectId: String!, $environmentId: String!, $serviceId: String!,
+         $name: String!, $value: String!) {
+  variableUpsert(input: {
+    projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId,
+    name: $name, value: $value
+  })
+}
+"""
+
 M_DOMAIN_PORT = """
 mutation($id: String!, $targetPort: Int!) {
   customDomainUpdate(id: $id, input: { targetPort: $targetPort })
@@ -354,7 +374,29 @@ def diagnose(domain: str, expect_port: int) -> dict:
     print(f"  latest deployment: {found['latestStatus'] or 'NONE'} "
           f"({found['deploymentCount']} recent)")
 
+    # gunicorn.conf.py reads PORT and falls back to 3000. A PORT variable set on
+    # the service therefore beats everything in the repository — the Dockerfile's
+    # EXPOSE, the config default, all of it. That is the only way a container
+    # built with EXPOSE 3000 can come up listening on 8080.
+    env_vars = try_gql("variables", Q_VARIABLES, {
+        "projectId": found["projectId"], "environmentId": found["environmentId"],
+        "serviceId": found["serviceId"]})
+    port_var = None
+    if env_vars is not None:
+        raw = env_vars.get("variables") or {}
+        if isinstance(raw, dict):
+            port_var = raw.get("PORT")
+            names = sorted(raw.keys())
+            print(f"  service variables: {', '.join(names) or '(none)'}")
+            print(f"  PORT variable    : {port_var if port_var is not None else '(unset)'}")
+    found["portVar"] = port_var
+
     problems: list[str] = []
+    if port_var is not None and str(port_var).strip() != str(expect_port):
+        problems.append(
+            f"the service sets PORT={port_var}, which overrides the image default "
+            f"({expect_port}); gunicorn binds {port_var} while the domain routes "
+            f"to {found.get('targetPort')}")
     if found["deploymentCount"] == 0 or not found["latestStatus"]:
         problems.append("the service has no deployment at all")
     elif found["latestStatus"] not in LIVE:
@@ -423,6 +465,26 @@ def fix(found: dict, expect_port: int, apply: bool) -> int:
     print("=" * 72)
 
     actions: list[tuple[str, str, dict]] = []
+
+    # Correct the override first. Changing the domain's target port instead
+    # would also "work", but it would leave the service contradicting the
+    # repository, and the next person to read EXPOSE 3000 would be misled all
+    # over again. Make the running process match what the code declares.
+    port_var = found.get("portVar")
+    if port_var is not None and str(port_var).strip() != str(expect_port):
+        actions.append((
+            f"set service variable PORT {port_var} -> {expect_port} "
+            f"(then redeploy so the new value takes effect)",
+            M_VARIABLE_UPSERT,
+            {"projectId": found["projectId"], "environmentId": found["environmentId"],
+             "serviceId": found["serviceId"], "name": "PORT", "value": str(expect_port)},
+        ))
+        actions.append((
+            f"redeploy '{found['serviceName']}' to pick up PORT={expect_port}",
+            M_REDEPLOY,
+            {"serviceId": found["serviceId"], "environmentId": found["environmentId"]},
+        ))
+
     if found.get("targetPort") is not None and int(found["targetPort"]) != expect_port:
         actions.append((
             f"set custom domain targetPort {found['targetPort']} -> {expect_port}",
