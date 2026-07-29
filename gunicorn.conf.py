@@ -8,8 +8,22 @@ never expands — gunicorn then rejects it with::
     Error: '$PORT' is not a valid port number.
 
 Reading ``os.environ`` here happens at runtime and is shell-independent, so the
-bind is always a valid ``host:port`` whether or not Railway injects ``PORT``
-(falling back to 8080, Railway's default target port).
+bind is always a valid ``host:port`` whether or not Railway injects ``PORT``.
+
+The fallback port is **3000**, which must match the target port configured on
+the Railway domain. These are two independent mechanisms and it is the mismatch
+between them that takes the site down in a uniquely confusing way:
+
+* the *healthcheck* auto-detects whatever port the container is listening on,
+  so it passes no matter which port that is;
+* the *domain* routes only to its configured target port.
+
+Listening on 8080 while the domain targets 3000 therefore yields a deploy whose
+log says ``[1/1] Healthcheck succeeded!`` while every public request returns 502
+with ``x-railway-fallback: true`` — the edge has nothing listening at the port
+it was told to route to. If the domain's target port is ever changed, change
+this default (and the Dockerfile's ``EXPOSE``) to match, or set a ``PORT``
+service variable, which overrides this default.
 
 The bind *host* is ``[::]`` rather than ``0.0.0.0`` wherever the platform
 supports it. Railway's private network is IPv6-only, so a listener on
@@ -71,8 +85,8 @@ def _resolve_bind(port):
     return ["0.0.0.0:%s" % port, "[::]:%s" % port]
 
 
-# Bind to Railway's injected PORT, or 8080 if it is not set.
-bind = _resolve_bind(os.environ.get("PORT", "8080"))
+# Bind to Railway's injected PORT, or 3000 (the domain's target port) if unset.
+bind = _resolve_bind(os.environ.get("PORT", "3000"))
 
 # Worker count: honor the conventional WEB_CONCURRENCY, default 2.
 workers = int(os.environ.get("WEB_CONCURRENCY", "2"))

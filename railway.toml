@@ -21,8 +21,13 @@ dockerfilePath = "Dockerfile"
 # the command line on purpose: Railway runs the start command without shell
 # interpolation, so a literal "$PORT" here would reach gunicorn unexpanded and
 # fail with "'$PORT' is not a valid port number". gunicorn.conf.py reads
-# os.environ["PORT"] in Python instead (falling back to 8080), which is
-# shell-independent and always valid. That same config also binds [::] rather
+# os.environ["PORT"] in Python instead (falling back to 3000), which is
+# shell-independent and always valid. That fallback MUST match the target port
+# set on the domain under Settings -> Networking (currently 3000): the
+# healthcheck auto-detects whatever port is listening and passes regardless,
+# but the domain routes only to its configured target port, so a mismatch gives
+# a deploy that reports "Healthcheck succeeded" and still serves 502 with
+# x-railway-fallback: true. That same config also binds [::] rather
 # than 0.0.0.0 where the platform supports it: Railway's private network (which
 # the public edge routes over) is IPv6-only, so an IPv4-only listener passes the
 # healthcheck and still serves 502 + x-railway-fallback on the domain.

@@ -44,41 +44,65 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The port has to agree in three places: this repo's two declarations and
+      # the target port on the Railway domain. Only the first two are checkable
+      # here — the dashboard value is external — but drift between them is the
+      # part that has actually bitten, and it fails silently: the healthcheck
+      # auto-detects the listening port and passes either way, so a mismatch
+      # only shows up as a 502 on the public domain.
+      - name: Dockerfile EXPOSE and the gunicorn default must agree
+        run: |
+          set -euo pipefail
+          EXPOSED=$(grep -oP '^EXPOSE\s+\K[0-9]+' Dockerfile | head -1)
+          DEFAULT=$(grep -oP 'os\.environ\.get\("PORT",\s*"\K[0-9]+' gunicorn.conf.py | head -1)
+          echo "Dockerfile EXPOSE      = ${EXPOSED:-<none>}"
+          echo "gunicorn.conf.py PORT  = ${DEFAULT:-<none>}"
+          if [ -z "$EXPOSED" ] || [ -z "$DEFAULT" ]; then
+            echo "::error::could not parse a port from Dockerfile and/or gunicorn.conf.py"
+            exit 1
+          fi
+          if [ "$EXPOSED" != "$DEFAULT" ]; then
+            echo "::error::port mismatch — Dockerfile EXPOSEs ${EXPOSED} but gunicorn defaults to ${DEFAULT}. Both must equal the domain's target port in Railway → Settings → Networking."
+            exit 1
+          fi
+          echo "ports agree: ${EXPOSED}"
+          echo "APP_PORT=${EXPOSED}" >> "$GITHUB_ENV"
+
       - name: Build the image Railway deploys
         run: docker build -t offdutylocks:verify .
 
-      - name: Boot with no PORT set (must fall back to 8080)
+      - name: Boot with no PORT set (must fall back to 3000)
         run: |
           set -euo pipefail
-          docker run -d --name web8080 -p 8080:8080 offdutylocks:verify
+          docker run -d --name web3000 -p 3000:3000 offdutylocks:verify
 
           # Poll readiness rather than sleeping a fixed amount.
           ok=0
           for _ in $(seq 1 40); do
-            if curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then ok=1; break; fi
+            if curl -fsS --max-time 2 http://127.0.0.1:3000/healthz >/dev/null 2>&1; then ok=1; break; fi
             sleep 1
           done
 
           echo "----- container log -----"
-          docker logs web8080 2>&1 | head -30
+          docker logs web3000 2>&1 | head -30
           echo "-------------------------"
 
           if [ "$ok" != "1" ]; then
-            echo "::error::container never answered /healthz on 127.0.0.1:8080"
+            echo "::error::container never answered /healthz on 127.0.0.1:3000"
             exit 1
           fi
 
           # The bind gunicorn actually resolved, straight from its own log.
-          BIND=$(docker logs web8080 2>&1 | grep -m1 "Listening at:" || true)
+          BIND=$(docker logs web3000 2>&1 | grep -m1 "Listening at:" || true)
           echo "resolved bind: ${BIND}"
           echo "BIND_LINE=${BIND}" >> "$GITHUB_ENV"
 
       - name: IPv4 must reach it (this is the family Railway's healthcheck uses)
         run: |
           set -euo pipefail
-          code=$(curl -s -o /tmp/b -w '%{http_code}' --max-time 10 http://127.0.0.1:8080/healthz)
+          code=$(curl -s -o /tmp/b -w '%{http_code}' --max-time 10 http://127.0.0.1:3000/healthz)
           body=$(cat /tmp/b)
-          echo "IPv4 127.0.0.1:8080/healthz -> ${code} ${body}"
+          echo "IPv4 127.0.0.1:3000/healthz -> ${code} ${body}"
           if [ "$code" != "200" ] || [ "$body" != "ok" ]; then
             echo "::error::IPv4 healthcheck path is broken — Railway's probe would fail"
             exit 1
@@ -87,8 +111,8 @@ jobs:
       - name: IPv6 must reach it (this is the family Railway's edge uses)
         run: |
           set -uo pipefail
-          code=$(curl -s -o /tmp/b6 -w '%{http_code}' --max-time 10 "http://[::1]:8080/healthz" || echo "000")
-          echo "IPv6 [::1]:8080/healthz -> ${code}"
+          code=$(curl -s -o /tmp/b6 -w '%{http_code}' --max-time 10 "http://[::1]:3000/healthz" || echo "000")
+          echo "IPv6 [::1]:3000/healthz -> ${code}"
           if [ "$code" != "200" ]; then
             echo "::warning::IPv6 loopback did not reach the container. This is usually the Docker port publisher, not the app — see the resolved bind line and the IPv4 result."
           fi
@@ -96,7 +120,7 @@ jobs:
       - name: Boot with PORT set (must honor it)
         run: |
           set -euo pipefail
-          docker rm -f web8080 >/dev/null 2>&1 || true
+          docker rm -f web3000 >/dev/null 2>&1 || true
           docker run -d --name web9099 -e PORT=9099 -p 9099:9099 offdutylocks:verify
 
           ok=0
@@ -120,14 +144,14 @@ jobs:
             echo "## Container verification"
             echo ""
             echo "- image builds from \`Dockerfile\`"
-            echo "- boots with no \`PORT\` and serves \`/healthz\` on 8080"
+            echo "- boots with no \`PORT\` and serves \`/healthz\` on 3000"
             echo "- honors \`PORT\` when injected"
             echo "- resolved bind: \`${BIND_LINE:-unknown}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Clean up
         if: always()
-        run: docker rm -f web8080 web9099 >/dev/null 2>&1 || true
+        run: docker rm -f web3000 web9099 >/dev/null 2>&1 || true
 
   site:
     name: site

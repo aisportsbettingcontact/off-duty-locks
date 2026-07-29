@@ -169,7 +169,7 @@ def _cmd_betting(args: argparse.Namespace) -> int:
 
 def _cmd_serve(args: argparse.Namespace) -> int:
     """Run the read-only web app locally (production uses gunicorn — see
-    railway.web.json). Binds the given host/port; defaults to $PORT or 8080."""
+    railway.web.json). Binds the given host/port; defaults to $PORT or 3000."""
     from wnba_pipeline.web import app
 
     app.run(host=args.host, port=args.port)
@@ -306,8 +306,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve_p = sub.add_parser("serve", help="run the read-only web app (local dev)")
     serve_p.add_argument("--host", default="0.0.0.0",
                          help="bind host (default: 0.0.0.0)")
-    serve_p.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")),
-                         help="bind port (default: $PORT or 8080)")
+    serve_p.add_argument("--port", type=int, default=int(os.environ.get("PORT", "3000")),
+                         help="bind port (default: $PORT or 3000)")
     serve_p.set_defaults(func=_cmd_serve)
 
     status_p = sub.add_parser("status", help="print last-known-good summary (read-only)")
