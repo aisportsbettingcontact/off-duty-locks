@@ -28,6 +28,19 @@ RUN pip install --no-cache-dir -e .
 # The web app is read-only (SELECT against Postgres) — no volume needed. Railway
 # rejects the Dockerfile VOLUME instruction, so it is intentionally omitted.
 
+# Declare the port the server listens on. This is documentation for humans AND a
+# routing hint for Railway: for a DOCKERFILE-builder service, EXPOSE is the
+# static target-port signal the edge uses when the domain has no explicit target
+# port and no PORT service variable is set. Without it the edge can end up with
+# no port to route to and serves its own 502 with `x-railway-fallback: true`
+# even though the container is healthy and its healthcheck passes.
+#
+# 8080 matches the default in gunicorn.conf.py, so the container listens here
+# whether or not Railway injects PORT. If PORT *is* injected with a different
+# value, gunicorn follows PORT and Railway routes to that value instead — this
+# EXPOSE only supplies the fallback hint.
+EXPOSE 8080
+
 # Default command: serve the site. This mirrors railway.toml's startCommand and
 # is the fallback if Railway ever runs the image default. Exec form (JSON) so
 # no shell is required: the bind port comes from os.environ["PORT"] inside
