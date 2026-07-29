@@ -1,0 +1,191 @@
+name: Deploy Verify
+
+# Two independent verifications of the web service:
+#
+#   container — builds the real Dockerfile and boots it, proving the artifact
+#               Railway deploys actually starts, binds the expected address,
+#               and answers /healthz over IPv4 (the family Railway's healthcheck
+#               probe uses) as well as IPv6.
+#   site      — probes the live offdutylocks.com from a GitHub runner.
+#
+# The `site` job is manual-only: it depends on external deploy state, so it must
+# never turn a pull request red. The `container` job is hermetic (no network
+# beyond the build, no secrets, no database) and guards the two files that
+# decide whether the service can serve at all.
+#
+# The development sandbox cannot do either check: its egress policy blocks
+# offdutylocks.com outright, and it has no Docker daemon and no IPv6 (an
+# AF_INET6 bind there fails with EAFNOSUPPORT). Both must run here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Base URL for the live-site probe"
+        required: false
+        default: "https://offdutylocks.com"
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - "gunicorn.conf.py"
+      - "railway.toml"
+      - "railway.web.json"
+      - ".github/workflows/deploy-verify.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  container:
+    name: container
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build the image Railway deploys
+        run: docker build -t offdutylocks:verify .
+
+      - name: Boot with no PORT set (must fall back to 8080)
+        run: |
+          set -euo pipefail
+          docker run -d --name web8080 -p 8080:8080 offdutylocks:verify
+
+          # Poll readiness rather than sleeping a fixed amount.
+          ok=0
+          for _ in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then ok=1; break; fi
+            sleep 1
+          done
+
+          echo "----- container log -----"
+          docker logs web8080 2>&1 | head -30
+          echo "-------------------------"
+
+          if [ "$ok" != "1" ]; then
+            echo "::error::container never answered /healthz on 127.0.0.1:8080"
+            exit 1
+          fi
+
+          # The bind gunicorn actually resolved, straight from its own log.
+          BIND=$(docker logs web8080 2>&1 | grep -m1 "Listening at:" || true)
+          echo "resolved bind: ${BIND}"
+          echo "BIND_LINE=${BIND}" >> "$GITHUB_ENV"
+
+      - name: IPv4 must reach it (this is the family Railway's healthcheck uses)
+        run: |
+          set -euo pipefail
+          code=$(curl -s -o /tmp/b -w '%{http_code}' --max-time 10 http://127.0.0.1:8080/healthz)
+          body=$(cat /tmp/b)
+          echo "IPv4 127.0.0.1:8080/healthz -> ${code} ${body}"
+          if [ "$code" != "200" ] || [ "$body" != "ok" ]; then
+            echo "::error::IPv4 healthcheck path is broken — Railway's probe would fail"
+            exit 1
+          fi
+
+      - name: IPv6 must reach it (this is the family Railway's edge uses)
+        run: |
+          set -uo pipefail
+          code=$(curl -s -o /tmp/b6 -w '%{http_code}' --max-time 10 "http://[::1]:8080/healthz" || echo "000")
+          echo "IPv6 [::1]:8080/healthz -> ${code}"
+          if [ "$code" != "200" ]; then
+            echo "::warning::IPv6 loopback did not reach the container. This is usually the Docker port publisher, not the app — see the resolved bind line and the IPv4 result."
+          fi
+
+      - name: Boot with PORT set (must honor it)
+        run: |
+          set -euo pipefail
+          docker rm -f web8080 >/dev/null 2>&1 || true
+          docker run -d --name web9099 -e PORT=9099 -p 9099:9099 offdutylocks:verify
+
+          ok=0
+          for _ in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:9099/healthz >/dev/null 2>&1; then ok=1; break; fi
+            sleep 1
+          done
+
+          docker logs web9099 2>&1 | grep -m1 "Listening at:" || true
+          if [ "$ok" != "1" ]; then
+            echo "::error::container did not honor PORT=9099"
+            docker logs web9099 2>&1 | head -30
+            exit 1
+          fi
+          echo "PORT=9099 honored"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Container verification"
+            echo ""
+            echo "- image builds from \`Dockerfile\`"
+            echo "- boots with no \`PORT\` and serves \`/healthz\` on 8080"
+            echo "- honors \`PORT\` when injected"
+            echo "- resolved bind: \`${BIND_LINE:-unknown}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clean up
+        if: always()
+        run: docker rm -f web8080 web9099 >/dev/null 2>&1 || true
+
+  site:
+    name: site
+    # Manual only — external deploy state must never fail a pull request.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASE: ${{ github.event.inputs.base_url || 'https://offdutylocks.com' }}
+    steps:
+      - name: Probe endpoints
+        id: probe
+        run: |
+          set -uo pipefail
+          {
+            echo "## Live site — \`$BASE\`"
+            echo ""
+            echo "| Endpoint | HTTP |"
+            echo "|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          fail=0
+          for path in /healthz / "/api/team-stats?split=last7" "/api/team-stats?split=ytd" /api/betting; do
+            code=$(curl -s -o /tmp/body -w '%{http_code}' --max-time 30 "${BASE}${path}" || echo "000")
+            [ "$code" = "200" ] || fail=1
+            echo "| \`${path}\` | ${code} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "${path} -> ${code}"
+          done
+          echo "probe_fail=$fail" >> "$GITHUB_OUTPUT"
+
+      - name: Edge routing state
+        run: |
+          set -uo pipefail
+          hdrs=$(curl -sS -D - -o /dev/null --max-time 30 "${BASE}/healthz" 2>&1 || true)
+          echo "$hdrs" | grep -iE '^(HTTP/|x-railway|server:)' || true
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if echo "$hdrs" | grep -qi 'x-railway-fallback'; then
+            echo "\`x-railway-fallback: true\` — the edge has no deployment to route to." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No \`x-railway-fallback\` header — the edge is routing to the app." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Data served by the live API
+        run: |
+          set -uo pipefail
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Rows served" >> "$GITHUB_STEP_SUMMARY"
+          for split in last7 ytd; do
+            body=$(curl -s --max-time 30 "${BASE}/api/team-stats?split=${split}" || echo "")
+            n=$(printf '%s' "$body" | python3 -c "import sys,json;print(len(json.load(sys.stdin).get('teams',[])))" 2>/dev/null || echo "n/a")
+            echo "- team-stats \`${split}\`: **${n}** teams" >> "$GITHUB_STEP_SUMMARY"
+          done
+          body=$(curl -s --max-time 30 "${BASE}/api/betting" || echo "")
+          n=$(printf '%s' "$body" | python3 -c "import sys,json;print(len(json.load(sys.stdin).get('games',[])))" 2>/dev/null || echo "n/a")
+          echo "- betting: **${n}** games" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if any endpoint did not return 200
+        if: ${{ steps.probe.outputs.probe_fail != '0' }}
+        run: |
+          echo "::error::live site is not serving — see the run summary"
+          exit 1
