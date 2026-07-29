@@ -2,10 +2,9 @@
 
 Port of WNBA-AN-Scraper.ts onto the pipeline's hardened HTTP client. For each
 game the scoreboard carries per-book markets; the opening line is book 30 and
-DraftKings is book 68. DraftKings outcomes also carry ``bet_info`` with ticket
-(bets) and money percentages, so open line, current line, %bets and %money all
-come from this one source. Pre-game outcomes (``is_live`` false) are preferred
-over in-game lines.
+DraftKings is book 68 — this module reads their spread/total/moneyline lines
+and odds. (%bets / %money come from VSIN, not here.) Pre-game outcomes
+(``is_live`` false) are preferred over in-game lines.
 """
 
 from __future__ import annotations
@@ -70,15 +69,6 @@ def _odds(outcome: dict[str, Any] | None) -> int | None:
     return parse_american_odds(outcome.get("odds")) if outcome else None
 
 
-def _pct(outcome: dict[str, Any] | None, kind: str) -> int | None:
-    """``kind`` is 'tickets' (bets) or 'money'. Returns an int percent or None."""
-    if not outcome:
-        return None
-    segment = (outcome.get("bet_info") or {}).get(kind) or {}
-    pct = segment.get("percent")
-    return int(pct) if isinstance(pct, (int, float)) and not isinstance(pct, bool) else None
-
-
 def _event(markets: dict[str, Any], book_id: int) -> dict[str, Any]:
     book = markets.get(str(book_id)) or markets.get(book_id) or {}
     return book.get("event") or {}
@@ -126,12 +116,6 @@ def parse_scoreboard(payload: dict[str, Any], game_date: str) -> list[AnGame]:
                 dk_total=_value(dk_total_over),
                 dk_ml_away=_odds(dk_ml_away),
                 dk_ml_home=_odds(dk_ml_home),
-                spread_pct_bets_away=_pct(dk_spread_away, "tickets"),
-                spread_pct_money_away=_pct(dk_spread_away, "money"),
-                total_pct_bets_over=_pct(dk_total_over, "tickets"),
-                total_pct_money_over=_pct(dk_total_over, "money"),
-                ml_pct_bets_away=_pct(dk_ml_away, "tickets"),
-                ml_pct_money_away=_pct(dk_ml_away, "money"),
             )
         )
     return out

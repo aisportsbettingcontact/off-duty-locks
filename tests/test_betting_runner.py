@@ -22,22 +22,24 @@ def _load(fixtures_dir):
         json.loads((fixtures_dir / "betting" / "an_scoreboard_wnba.json").read_text()),
         "2026-07-22",
     )
+    dk = vsin.parse_splits((fixtures_dir / "betting" / "vsin_dk_wnba.html").read_text())
     circa = vsin.parse_splits((fixtures_dir / "betting" / "vsin_circa_wnba.html").read_text())
-    return an, circa
+    return an, dk, circa
 
 
 def test_run_betting_publishes(fixtures_dir, capsys):
-    an, circa = _load(fixtures_dir)
+    an, dk, circa = _load(fixtures_dir)
     published: list = []
     summary = run_betting(
         dates=["2026-07-22"],
         an_fetch=lambda d: an,
-        vsin_fetch=lambda source, view: circa if source == "circa" else [],
+        vsin_fetch=lambda source, view: dk if source == "DK" else circa,
         publish_fn=lambda games: (published.extend(games) or len(games)),
     )
     assert summary["status"] == "SUCCESS"
     assert summary["exitCode"] == EXIT_OK
     assert summary["merged"] == 2
+    assert summary["splitsMatched"] == 2
     assert summary["sharpMatched"] == 2
     assert summary["published"] == 2
     line = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
@@ -59,7 +61,7 @@ def test_run_betting_upstream_unavailable(fixtures_dir):
 
 
 def test_run_betting_publish_failure_is_storage_error(fixtures_dir):
-    an, circa = _load(fixtures_dir)
+    an, dk, circa = _load(fixtures_dir)
 
     def boom(games):
         raise RuntimeError("db down")
@@ -67,7 +69,7 @@ def test_run_betting_publish_failure_is_storage_error(fixtures_dir):
     summary = run_betting(
         dates=["2026-07-22"],
         an_fetch=lambda d: an,
-        vsin_fetch=lambda source, view: circa,
+        vsin_fetch=lambda source, view: dk if source == "DK" else circa,
         publish_fn=boom,
     )
     assert summary["status"] == "STORAGE_ERROR"

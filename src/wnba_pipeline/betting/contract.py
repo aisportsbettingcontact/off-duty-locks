@@ -1,9 +1,9 @@
 """Data shapes and parse helpers for the betting feed.
 
-``AnGame``   — one Action Network game: open + current DraftKings lines,
-               moneylines, and DraftKings ticket/money percentages.
-``VsinGame`` — one VSIN game: the book's spread/total/moneyline line values
-               (used for the Circa sharp line).
+``AnGame``   — one Action Network game: opening and current DraftKings lines
+               and moneylines (odds only).
+``VsinGame`` — one VSIN game: spread/total/moneyline line values (used for the
+               Circa sharp line) plus the DK-view %bets / %money splits.
 ``BettingGame`` — the merged, wide per-game row that maps 1:1 to the
                ``betting_games`` table and to a game card on the site.
 
@@ -72,6 +72,17 @@ def parse_american_odds(value: object) -> int | None:
         return None
 
 
+def parse_percent(value: object) -> int | None:
+    """Integer percent from a VSIN badge like ``"75%"`` or ``"▲ 75%"``.
+    ``None`` when there is no numeric content."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    match = re.search(r"\d+", str(value))
+    return int(match.group()) if match else None
+
+
 @dataclass
 class AnGame:
     """One Action Network WNBA game with open + DraftKings markets."""
@@ -96,18 +107,14 @@ class AnGame:
     dk_total: float | None
     dk_ml_away: int | None
     dk_ml_home: int | None
-    # DraftKings splits (book 68 bet_info): away side / over side
-    spread_pct_bets_away: int | None
-    spread_pct_money_away: int | None
-    total_pct_bets_over: int | None
-    total_pct_money_over: int | None
-    ml_pct_bets_away: int | None
-    ml_pct_money_away: int | None
 
 
 @dataclass
 class VsinGame:
-    """One VSIN game's line values (away spread, total, away/home moneyline)."""
+    """One VSIN game: line values plus the book's %bets / %money splits.
+
+    Splits are the away side (spread/moneyline) and the over side (total); the
+    home/under side is the complement (100 - away/over)."""
 
     game_id: str              # VSIN gamecode, e.g. "20260722WNBA06104"
     game_date: str            # YYYY-MM-DD, parsed from the gamecode
@@ -119,6 +126,12 @@ class VsinGame:
     total: float | None
     ml_away: int | None
     ml_home: int | None
+    spread_pct_bets_away: int | None = None
+    spread_pct_money_away: int | None = None
+    total_pct_bets_over: int | None = None
+    total_pct_money_over: int | None = None
+    ml_pct_bets_away: int | None = None
+    ml_pct_money_away: int | None = None
 
 
 @dataclass
