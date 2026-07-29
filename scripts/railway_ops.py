@@ -36,7 +36,22 @@ import sys
 import urllib.error
 import urllib.request
 
-API = "https://backboard.railway.com/graphql/v2"
+# Railway's backboard API sits behind Cloudflare. A request carrying urllib's
+# default `User-Agent: Python-urllib/3.11` is rejected with HTTP 403 and
+# Cloudflare error 1010 ("banned based on your browser's signature") BEFORE it
+# reaches Railway's auth layer — so a perfectly valid token looks like an auth
+# failure. Sending a browser-shaped User-Agent is what gets the request through.
+# This was not a guess: the first run returned 1010 for every query while both
+# tokens were present, and 1010 is a Cloudflare code, not a Railway one.
+UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
+# The API has been served from both hosts; try them in order so a move does not
+# strand the tool.
+ENDPOINTS = (
+    "https://backboard.railway.com/graphql/v2",
+    "https://backboard.railway.app/graphql/v2",
+)
 TIMEOUT = 30
 
 
@@ -48,37 +63,85 @@ class GraphQLError(RuntimeError):
     pass
 
 
-def _headers() -> tuple[dict[str, str], str]:
+def _base_headers() -> dict[str, str]:
+    return {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": UA,
+    }
+
+
+def _auth_variants() -> list[tuple[dict[str, str], str]]:
+    """Every credential we hold, in the order worth trying.
+
+    Both token kinds may be configured. An account token is preferred because a
+    project token cannot enumerate projects — but if the account token is
+    rejected we should still fall back rather than report a dead end, so each
+    is returned and tried in turn.
+    """
+    out: list[tuple[dict[str, str], str]] = []
     account = os.environ.get("RAILWAY_API_TOKEN", "").strip()
     project = os.environ.get("RAILWAY_TOKEN", "").strip()
     if account:
-        return ({"Authorization": f"Bearer {account}",
-                 "Content-Type": "application/json"}, "account/team token")
+        out.append(({"Authorization": f"Bearer {account}"}, "account/team token"))
     if project:
-        return ({"Project-Access-Token": project,
-                 "Content-Type": "application/json"}, "project token")
-    raise SystemExit(
-        "NO CREDENTIALS: set RAILWAY_API_TOKEN (account/team) or RAILWAY_TOKEN "
-        "(project) as a repository secret. Railway -> Account Settings -> Tokens."
-    )
+        out.append(({"Project-Access-Token": project}, "project token"))
+        # Some Railway deployments accept a project token as a bearer too.
+        out.append(({"Authorization": f"Bearer {project}"}, "project token (bearer)"))
+    if not out:
+        raise SystemExit(
+            "NO CREDENTIALS: set RAILWAY_API_TOKEN (account/team) or RAILWAY_TOKEN "
+            "(project) as a repository secret. Railway -> Account Settings -> Tokens."
+        )
+    return out
 
 
-def gql(query: str, variables: dict | None = None) -> dict:
-    headers, _ = _headers()
-    body = json.dumps({"query": query, "variables": variables or {}}).encode()
-    req = urllib.request.Request(API, data=body, headers=headers, method="POST")
+# Once a (endpoint, auth) pair works, keep using it instead of re-probing.
+_WORKING: dict[str, object] = {}
+
+
+def _post(endpoint: str, headers: dict[str, str], body: bytes) -> dict:
+    req = urllib.request.Request(endpoint, data=body, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            payload = json.loads(resp.read().decode())
+            return json.loads(resp.read().decode())
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode(errors="replace")[:500]
+        detail = exc.read().decode(errors="replace")[:300].replace("\n", " ")
+        if "1010" in detail or "1020" in detail:
+            detail += ("  [Cloudflare rejected the request on browser signature, "
+                       "not a Railway auth failure]")
         raise GraphQLError(f"HTTP {exc.code}: {detail}") from None
     except urllib.error.URLError as exc:
         raise GraphQLError(f"network: {exc.reason}") from None
-    if payload.get("errors"):
-        msgs = "; ".join(e.get("message", "?") for e in payload["errors"])
-        raise GraphQLError(msgs)
-    return payload.get("data") or {}
+
+
+def gql(query: str, variables: dict | None = None) -> dict:
+    body = json.dumps({"query": query, "variables": variables or {}}).encode()
+
+    if _WORKING:
+        payload = _post(_WORKING["endpoint"], _WORKING["headers"], body)  # type: ignore[index,arg-type]
+        if payload.get("errors"):
+            raise GraphQLError("; ".join(e.get("message", "?")
+                                         for e in payload["errors"]))
+        return payload.get("data") or {}
+
+    last: str = "no attempt made"
+    for endpoint in ENDPOINTS:
+        for auth, label in _auth_variants():
+            headers = {**_base_headers(), **auth}
+            try:
+                payload = _post(endpoint, headers, body)
+            except GraphQLError as exc:
+                last = f"{endpoint} via {label}: {exc}"
+                continue
+            if payload.get("errors"):
+                last = (f"{endpoint} via {label}: "
+                        + "; ".join(e.get("message", "?") for e in payload["errors"]))
+                continue
+            _WORKING.update({"endpoint": endpoint, "headers": headers, "label": label})
+            print(f"    (authenticated via {label} at {endpoint})")
+            return payload.get("data") or {}
+    raise GraphQLError(last)
 
 
 def try_gql(label: str, query: str, variables: dict | None = None) -> dict | None:
@@ -162,7 +225,7 @@ LIVE = {"SUCCESS", "DEPLOYED", "RUNNING"}
 # --------------------------------------------------------------------------- #
 
 def diagnose(domain: str, expect_port: int) -> dict:
-    _, kind = _headers()
+    kind = ", ".join(label for _, label in _auth_variants())
     print("=" * 72)
     print(" RAILWAY DIAGNOSIS")
     print("=" * 72)
@@ -178,9 +241,18 @@ def diagnose(domain: str, expect_port: int) -> dict:
     data = try_gql("projects", Q_PROJECTS)
     projects = edges(data, "projects")
     if not projects:
-        print("  ! no projects visible to this token")
-        print("    A PROJECT token only sees its own project and cannot list")
-        print("    projects; use an account/team token for a full survey.")
+        # Distinguish "the query failed" from "the query succeeded and the token
+        # legitimately sees nothing". Conflating them sent the first run's
+        # reader toward a token-scope explanation when the real cause was a
+        # Cloudflare rejection at the transport layer.
+        if data is None:
+            print("  ! the projects query did NOT complete — see the error above.")
+            print("    This is a transport or authentication failure, not a")
+            print("    statement about what the token can see.")
+        else:
+            print("  ! the query succeeded but returned no projects.")
+            print("    A PROJECT token only sees its own project and cannot list")
+            print("    projects; use an account/team token for a full survey.")
         return {}
 
     found: dict = {}
