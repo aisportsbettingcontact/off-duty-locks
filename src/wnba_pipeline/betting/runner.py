@@ -1,9 +1,9 @@
 """Betting feed orchestration: fetch -> merge -> publish -> summary.
 
-Fetches Action Network for the target date(s) and VSIN Circa (today+tomorrow),
-merges them into per-game rows, publishes to Postgres, and emits one JSON
-summary line on stdout. Fetchers and the publisher are injectable so the whole
-flow runs offline in tests.
+Fetches Action Network for the target date(s) and VSIN (DK view for splits +
+Circa view for the sharp line, today+tomorrow), merges them into per-game rows,
+publishes to Postgres, and emits one JSON summary line on stdout. Fetchers and
+the publisher are injectable so the whole flow runs offline in tests.
 
 Unlike team stats there is no file audit trail here — the database is the store
 — so a requested-but-failed publish is a STORAGE_ERROR (exit 6), while Action
@@ -80,15 +80,21 @@ def run_betting(
             errors.append(f"an[{d}]:{exc.reason}")
             logger.warning("Action Network unavailable for %s: %s", d, exc.reason)
 
+    vsin_dk: list[Any] = []
     circa: list[Any] = []
     for view in ("today", "tomorrow"):
         try:
+            vsin_dk.extend(vsin_fetch("DK", view))
+        except UpstreamUnavailable as exc:
+            errors.append(f"vsin_dk[{view}]:{exc.reason}")
+            logger.warning("VSIN DK unavailable for %s: %s", view, exc.reason)
+        try:
             circa.extend(vsin_fetch("circa", view))
         except UpstreamUnavailable as exc:
-            errors.append(f"vsin[{view}]:{exc.reason}")
+            errors.append(f"vsin_circa[{view}]:{exc.reason}")
             logger.warning("VSIN Circa unavailable for %s: %s", view, exc.reason)
 
-    merged = merge_games(an_games, circa, fetched_at_utc=fetched_at)
+    merged = merge_games(an_games, vsin_dk, circa, fetched_at_utc=fetched_at)
 
     status = "SUCCESS"
     exit_code = EXIT_OK
@@ -110,15 +116,18 @@ def run_betting(
             publish_result = f"FAILED:{type(exc).__name__}"
             logger.warning("betting publish failed: %s", exc)
 
-    sharp_matched = sum(1 for g in merged if g.vsin_game_id is not None)
+    splits_matched = sum(1 for g in merged if g.spread_pct_bets_away is not None)
+    sharp_matched = sum(1 for g in merged if g.sharp_book is not None)
     summary = {
         "feed": "betting",
         "status": status,
         "exitCode": exit_code,
         "dates": dates,
         "anGames": len(an_games),
+        "vsinDkGames": len(vsin_dk),
         "vsinCircaGames": len(circa),
         "merged": len(merged),
+        "splitsMatched": splits_matched,
         "sharpMatched": sharp_matched,
         "published": published,
         "publishResult": publish_result,

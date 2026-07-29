@@ -1,14 +1,15 @@
 """VSIN betting-splits page -> per-game line values for a book source.
 
 Port of the sp-table parsing in WNBASplitsScraper.ts using BeautifulSoup. Each
-WNBA game is a pair of rows (away then home) with 11 cells; the line values are
-td[2] (spread, away side), td[5] (total), td[8] (moneyline). We consume those
-line values — primarily to obtain the Circa sharp line (``source=circa``),
-which Action Network does not carry. The game's date is parsed from the
-gamecode (``YYYYMMDD...``) so games can be matched to Action Network by date.
+WNBA game is a pair of rows (away then home) with 11 cells. Line values:
+td[2] (spread, away side), td[5] (total), td[8] (moneyline). Splits (from the
+away row): td[3]/td[4] = spread money/bets, td[6]/td[7] = total money/bets
+(over side), td[9]/td[10] = moneyline money/bets (away side); the home/under
+side is the complement. The game's date is parsed from the gamecode
+(``YYYYMMDD...``) so games can be matched to Action Network by date.
 
-Percentages are intentionally not consumed here: Action Network's structured
-``bet_info`` is the authoritative source for %bets and %money.
+VSIN is the source of %bets / %money; the ``source=circa`` view additionally
+provides the sharp line that Action Network does not carry.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from wnba_pipeline.betting.contract import (
     VsinGame,
     parse_american_odds,
     parse_line,
+    parse_percent,
     slug_from_href,
 )
 
@@ -46,8 +48,14 @@ _GAMECODE_DATE = re.compile(r"^(\d{4})(\d{2})(\d{2})")
 
 # Cell indices within an 11-td sp-row (0-indexed), per the VSIN layout.
 _TD_SPREAD = 2
+_TD_SPREAD_MONEY = 3       # spread handle % (away row = away side)
+_TD_SPREAD_BETS = 4        # spread bets %
 _TD_TOTAL = 5
+_TD_TOTAL_MONEY = 6        # total handle % (away row = over side)
+_TD_TOTAL_BETS = 7         # total bets %
 _TD_MONEYLINE = 8
+_TD_ML_MONEY = 9           # moneyline handle % (away row = away side)
+_TD_ML_BETS = 10           # moneyline bets %
 
 
 def _date_from_gamecode(gamecode: str) -> str:
@@ -83,7 +91,7 @@ def parse_splits(html: str, *, sport: str = "WNBA") -> list[VsinGame]:
                 continue
             away_tds = away_row.find_all("td")
             home_tds = home_row.find_all("td")
-            if len(away_tds) <= _TD_MONEYLINE or len(home_tds) <= _TD_MONEYLINE:
+            if len(away_tds) <= _TD_ML_BETS or len(home_tds) <= _TD_MONEYLINE:
                 logger.warning("VSIN game %s: unexpected cell count; skipping", gamecode)
                 continue
             out.append(
@@ -98,6 +106,12 @@ def parse_splits(html: str, *, sport: str = "WNBA") -> list[VsinGame]:
                     total=parse_line(_cell_text(away_tds[_TD_TOTAL])),
                     ml_away=parse_american_odds(_cell_text(away_tds[_TD_MONEYLINE])),
                     ml_home=parse_american_odds(_cell_text(home_tds[_TD_MONEYLINE])),
+                    spread_pct_money_away=parse_percent(_cell_text(away_tds[_TD_SPREAD_MONEY])),
+                    spread_pct_bets_away=parse_percent(_cell_text(away_tds[_TD_SPREAD_BETS])),
+                    total_pct_money_over=parse_percent(_cell_text(away_tds[_TD_TOTAL_MONEY])),
+                    total_pct_bets_over=parse_percent(_cell_text(away_tds[_TD_TOTAL_BETS])),
+                    ml_pct_money_away=parse_percent(_cell_text(away_tds[_TD_ML_MONEY])),
+                    ml_pct_bets_away=parse_percent(_cell_text(away_tds[_TD_ML_BETS])),
                 )
             )
     return out

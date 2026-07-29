@@ -1,10 +1,12 @@
-"""Merge Action Network (backbone) with the VSIN Circa (sharp) line.
+"""Merge Action Network (lines) with VSIN (splits + Circa sharp line).
 
-Action Network supplies open/current/%bets/%money; VSIN Circa supplies the
-sharp line, matched by ``(date, unordered team-slug pair)`` and oriented to
-Action Network's away/home. Line movement is ``current - open``; reverse line
+Action Network supplies opening and current DraftKings lines. VSIN's DK view
+supplies %bets / %money, and VSIN's Circa view supplies the sharp line. VSIN
+games are matched to Action Network by ``(date, unordered team-slug pair)`` and
+oriented to Action Network's away/home — a swapped pairing takes the complement
+of the away-side percentages. Line movement is ``current - open``; reverse line
 movement (RLM) is when the line moves toward the side the public (ticket
-majority) is NOT on — a classic sharp-money signal.
+majority) is NOT on — computed from VSIN's bets%.
 """
 
 from __future__ import annotations
@@ -34,6 +36,11 @@ def line_move(current: float | None, open_: float | None) -> float | None:
     if current is None or open_ is None:
         return None
     return round(current - open_, 2)
+
+
+def _complement(pct: int | None) -> int | None:
+    """100 - pct; used when VSIN lists the teams in the opposite order."""
+    return None if pct is None else 100 - pct
 
 
 def rlm_spread(pct_bets_away: int | None, move: float | None) -> bool | None:
@@ -84,35 +91,53 @@ def rlm_moneyline(
 
 def merge_games(
     an_games: Iterable[AnGame],
+    vsin_dk: Iterable[VsinGame],
     vsin_circa: Iterable[VsinGame],
     *,
     fetched_at_utc: str,
 ) -> list[BettingGame]:
-    """Merge Action Network games with matched VSIN Circa sharp lines."""
-    vindex = index_vsin(vsin_circa)
+    """Merge Action Network lines with VSIN splits (DK view) and sharp (Circa)."""
+    dk_index = index_vsin(vsin_dk)
+    circa_index = index_vsin(vsin_circa)
     out: list[BettingGame] = []
     for a in an_games:
         away_slug = slugify_team(a.away_name)
         home_slug = slugify_team(a.home_name)
-        v = vindex.get(_key(a.game_date, away_slug, home_slug))
+        key = _key(a.game_date, away_slug, home_slug)
 
+        # --- splits from VSIN DK, oriented to AN's away / over ---
+        dk = dk_index.get(key)
+        sp_bets = sp_money = tot_bets = tot_money = ml_bets = ml_money = None
+        if dk is not None:
+            if dk.away_slug == away_slug:
+                sp_bets, sp_money = dk.spread_pct_bets_away, dk.spread_pct_money_away
+                ml_bets, ml_money = dk.ml_pct_bets_away, dk.ml_pct_money_away
+            else:
+                # VSIN listed the teams the other way: its away side is AN's home.
+                sp_bets = _complement(dk.spread_pct_bets_away)
+                sp_money = _complement(dk.spread_pct_money_away)
+                ml_bets = _complement(dk.ml_pct_bets_away)
+                ml_money = _complement(dk.ml_pct_money_away)
+            # Over/under is orientation-independent.
+            tot_bets, tot_money = dk.total_pct_bets_over, dk.total_pct_money_over
+
+        # --- sharp line from VSIN Circa ---
+        circa = circa_index.get(key)
         sharp_spread = sharp_total = None
         sharp_ml_away = sharp_ml_home = None
-        vsin_id = None
         sharp_book = None
-        if v is not None:
-            vsin_id = v.game_id
+        if circa is not None:
             sharp_book = SHARP_BOOK
-            sharp_total = v.total
-            if v.away_slug == away_slug:
-                sharp_spread = v.spread_away
-                sharp_ml_away, sharp_ml_home = v.ml_away, v.ml_home
+            sharp_total = circa.total
+            if circa.away_slug == away_slug:
+                sharp_spread = circa.spread_away
+                sharp_ml_away, sharp_ml_home = circa.ml_away, circa.ml_home
             else:
-                # VSIN listed the teams in the opposite order — flip to AN's
-                # away/home orientation (away spread is the negation of home's).
-                sharp_spread = -v.spread_away if v.spread_away is not None else None
-                sharp_ml_away, sharp_ml_home = v.ml_home, v.ml_away
+                sharp_spread = -circa.spread_away if circa.spread_away is not None else None
+                sharp_ml_away, sharp_ml_home = circa.ml_home, circa.ml_away
 
+        vsin_id = (circa.game_id if circa is not None
+                   else dk.game_id if dk is not None else None)
         spread_move = line_move(a.dk_spread_away, a.open_spread_away)
         total_move = line_move(a.dk_total, a.open_total)
 
@@ -131,26 +156,26 @@ def merge_games(
                 open_spread=a.open_spread_away,
                 current_spread=a.dk_spread_away,
                 sharp_spread=sharp_spread,
-                spread_pct_bets_away=a.spread_pct_bets_away,
-                spread_pct_money_away=a.spread_pct_money_away,
+                spread_pct_bets_away=sp_bets,
+                spread_pct_money_away=sp_money,
                 spread_line_move=spread_move,
-                spread_rlm=rlm_spread(a.spread_pct_bets_away, spread_move),
+                spread_rlm=rlm_spread(sp_bets, spread_move),
                 open_total=a.open_total,
                 current_total=a.dk_total,
                 sharp_total=sharp_total,
-                total_pct_bets_over=a.total_pct_bets_over,
-                total_pct_money_over=a.total_pct_money_over,
+                total_pct_bets_over=tot_bets,
+                total_pct_money_over=tot_money,
                 total_line_move=total_move,
-                total_rlm=rlm_total(a.total_pct_bets_over, total_move),
+                total_rlm=rlm_total(tot_bets, total_move),
                 open_ml_away=a.open_ml_away,
                 open_ml_home=a.open_ml_home,
                 current_ml_away=a.dk_ml_away,
                 current_ml_home=a.dk_ml_home,
                 sharp_ml_away=sharp_ml_away,
                 sharp_ml_home=sharp_ml_home,
-                ml_pct_bets_away=a.ml_pct_bets_away,
-                ml_pct_money_away=a.ml_pct_money_away,
-                ml_rlm=rlm_moneyline(a.ml_pct_bets_away, a.open_ml_away, a.dk_ml_away),
+                ml_pct_bets_away=ml_bets,
+                ml_pct_money_away=ml_money,
+                ml_rlm=rlm_moneyline(ml_bets, a.open_ml_away, a.dk_ml_away),
                 public_book=PUBLIC_BOOK,
                 sharp_book=sharp_book,
                 an_game_id=str(a.game_id),

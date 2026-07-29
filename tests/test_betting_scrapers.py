@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from wnba_pipeline.betting import actionnetwork, vsin
-from wnba_pipeline.betting.contract import parse_american_odds, parse_line
+from wnba_pipeline.betting.contract import parse_american_odds, parse_line, parse_percent
 
 
 def _an(fixtures_dir):
@@ -13,7 +13,7 @@ def _an(fixtures_dir):
     return actionnetwork.parse_scoreboard(payload, "2026-07-22")
 
 
-def test_an_parse_open_current_and_splits(fixtures_dir):
+def test_an_parse_open_and_current_lines(fixtures_dir):
     games = {g.away_abbr: g for g in _an(fixtures_dir)}
     assert set(games) == {"PHX", "MIN"}
     phx = games["PHX"]
@@ -26,10 +26,8 @@ def test_an_parse_open_current_and_splits(fixtures_dir):
     # American odds parsed to ints (100 == +100)
     assert phx.open_ml_away == -102
     assert phx.dk_ml_away == 100
-    # DK splits from bet_info
-    assert phx.spread_pct_bets_away == 32
-    assert phx.spread_pct_money_away == 29
-    assert phx.total_pct_bets_over == 79
+    # AN no longer carries the % splits — those come from VSIN now
+    assert not hasattr(phx, "spread_pct_bets_away")
 
 
 def test_an_skips_games_missing_team_data():
@@ -38,7 +36,7 @@ def test_an_skips_games_missing_team_data():
     assert actionnetwork.parse_scoreboard(payload, "2026-07-22") == []
 
 
-def test_vsin_dk_parse(fixtures_dir):
+def test_vsin_dk_parse_lines_and_splits(fixtures_dir):
     games = {g.away_slug: g for g in
              vsin.parse_splits((fixtures_dir / "betting" / "vsin_dk_wnba.html").read_text())}
     assert len(games) == 6
@@ -47,6 +45,12 @@ def test_vsin_dk_parse(fixtures_dir):
     assert phx.game_date == "2026-07-22"          # parsed from gamecode YYYYMMDD
     assert phx.spread_away == 1.5
     assert phx.total == 176.5
+    # VSIN splits: away side (spread/ML) and over side (total)
+    assert phx.spread_pct_bets_away == 17
+    assert phx.spread_pct_money_away == 75
+    assert phx.total_pct_bets_over == 73
+    assert phx.total_pct_money_over == 21
+    assert phx.ml_pct_bets_away == 25
 
 
 def test_vsin_circa_parse_gives_sharp_line(fixtures_dir):
@@ -67,3 +71,6 @@ def test_parse_helpers_tolerate_signs_arrows_and_pickem():
     assert parse_american_odds("+100") == 100
     assert parse_american_odds("-121") == -121
     assert parse_american_odds("") is None
+    assert parse_percent("75%") == 75
+    assert parse_percent("▲ 17%") == 17
+    assert parse_percent("") is None
