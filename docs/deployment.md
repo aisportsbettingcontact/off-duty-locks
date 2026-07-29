@@ -131,14 +131,18 @@ URL) for the scrapers. No database credentials are stored in the repository.
 ## Web service & custom domain (offdutylocks.com)
 
 The public site is the Railway service that reads `railway.toml` (its default
-config), so it starts gunicorn and binds `$PORT` automatically:
+config), so it starts gunicorn automatically:
 
 | Service | Config | Start command | Networking |
 |---|---|---|---|
-| Web (site) | `railway.toml` (default) | `gunicorn wnba_pipeline.web:app -b 0.0.0.0:$PORT` | public + domain |
+| Web (site) | `railway.toml` (default) | `gunicorn --config /app/gunicorn.conf.py wnba_pipeline.web:app` | public + domain |
 
-`railway.web.json` carries the same gunicorn command and is kept as an alias for
-any service explicitly pinned to it.
+The bind port is read from `os.environ["PORT"]` inside `gunicorn.conf.py`
+(default 8080) — **not** from a `$PORT` token in the start command. Railway runs
+the start command without shell interpolation, so a literal `$PORT` reaches
+gunicorn unexpanded and fails with `'$PORT' is not a valid port number`; reading
+the env var in Python avoids that. `railway.web.json` carries the identical
+command and is kept as an alias for any service explicitly pinned to it.
 
 **Add / fix the web service:**
 
