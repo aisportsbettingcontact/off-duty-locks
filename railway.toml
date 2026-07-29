@@ -17,16 +17,19 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# Production WSGI server for the read-only Flask app. Binds Railway's injected
-# $PORT so the edge can route to it (no listener on $PORT == the x-railway
-# -fallback 502). DATABASE_URL is injected via a Postgres reference variable:
-#   DATABASE_URL = ${{Postgres.DATABASE_URL}}
-startCommand = "gunicorn wnba_pipeline.web:app -b 0.0.0.0:$PORT --workers 2 --timeout 60"
+# Production WSGI server for the read-only Flask app. The bind port is NOT on
+# the command line on purpose: Railway runs the start command without shell
+# interpolation, so a literal "$PORT" here would reach gunicorn unexpanded and
+# fail with "'$PORT' is not a valid port number". gunicorn.conf.py reads
+# os.environ["PORT"] in Python instead (falling back to 8080), which is
+# shell-independent and always valid. DATABASE_URL is injected via a reference
+# variable: DATABASE_URL = ${{Postgres.DATABASE_URL}}
+startCommand = "gunicorn --config /app/gunicorn.conf.py wnba_pipeline.web:app"
 
 # Railway probes this until it returns 200 before routing traffic; the web app
-# answers /healthz even when the database is empty.
+# answers /healthz (a static "ok", no DB touch) even when the database is empty.
 healthcheckPath = "/healthz"
-healthcheckTimeout = 30
+healthcheckTimeout = 100
 
 # Keep the site up: restart the web process if it ever exits.
 restartPolicyType = "ON_FAILURE"
