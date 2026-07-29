@@ -18,15 +18,17 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 # Production WSGI server for the read-only Flask app. Binds Railway's injected
-# $PORT so the edge can route to it (no listener on $PORT == the x-railway
-# -fallback 502). DATABASE_URL is injected via a Postgres reference variable:
+# $PORT so the edge can route to it (no listener on the probed port == the
+# x-railway-fallback 502 / healthcheck failure). ${PORT:-8080} falls back to
+# 8080 if PORT is not injected, which is also Railway's default target port, so
+# the bind is always valid. DATABASE_URL is injected via a reference variable:
 #   DATABASE_URL = ${{Postgres.DATABASE_URL}}
-startCommand = "gunicorn wnba_pipeline.web:app -b 0.0.0.0:$PORT --workers 2 --timeout 60"
+startCommand = "gunicorn wnba_pipeline.web:app -b 0.0.0.0:${PORT:-8080} --workers 2 --timeout 60"
 
 # Railway probes this until it returns 200 before routing traffic; the web app
-# answers /healthz even when the database is empty.
+# answers /healthz (a static "ok", no DB touch) even when the database is empty.
 healthcheckPath = "/healthz"
-healthcheckTimeout = 30
+healthcheckTimeout = 100
 
 # Keep the site up: restart the web process if it ever exits.
 restartPolicyType = "ON_FAILURE"
