@@ -126,6 +126,48 @@ def betting_games_rows(games: list[Any]) -> list[dict[str, Any]]:
     return rows
 
 
+# Line-movement history: the CURRENT values of each game at fetch time,
+# appended once per scrape run (PK = game_key + captured_at_utc).
+SNAPSHOT_COLUMNS: tuple[str, ...] = (
+    "game_key", "captured_at_utc", "spread", "total", "ml_away", "ml_home",
+    "spread_pct_bets_away", "spread_pct_money_away",
+    "total_pct_bets_over", "total_pct_money_over",
+    "ml_pct_bets_away", "ml_pct_money_away", "public_book",
+)
+
+_SNAPSHOT_SOURCE_FIELDS = {
+    "captured_at_utc": "fetched_at_utc",
+    "spread": "current_spread",
+    "total": "current_total",
+    "ml_away": "current_ml_away",
+    "ml_home": "current_ml_home",
+}
+
+
+def snapshot_rows(games: list[Any]) -> list[dict[str, Any]]:
+    """BettingGame dataclasses -> betting_line_snapshots rows (current values)."""
+    import dataclasses
+
+    rows: list[dict[str, Any]] = []
+    for g in games:
+        d = dataclasses.asdict(g)
+        rows.append({
+            col: d.get(_SNAPSHOT_SOURCE_FIELDS.get(col, col))
+            for col in SNAPSHOT_COLUMNS
+        })
+    return rows
+
+
+def snapshot_insert_sql() -> str:
+    """Append-only insert; identical re-publishes are no-ops."""
+    col_list = ", ".join(SNAPSHOT_COLUMNS)
+    placeholders = ", ".join(["%s"] * len(SNAPSHOT_COLUMNS))
+    return (
+        f"INSERT INTO betting_line_snapshots ({col_list}) VALUES ({placeholders})\n"
+        "ON CONFLICT (game_key, captured_at_utc) DO NOTHING"
+    )
+
+
 def upsert_sql(table: str, columns: list[str], pk: tuple[str, ...]) -> str:
     """Parameterized ``INSERT ... ON CONFLICT (pk) DO UPDATE`` statement.
 
@@ -241,11 +283,16 @@ class BettingPublisher:
         columns = list(BETTING_GAMES_COLUMNS)
         sql = upsert_sql("betting_games", columns, BETTING_GAMES_PK)
         params = [tuple(row[c] for c in columns) for row in rows]
+        snap_params = [
+            tuple(row[c] for c in SNAPSHOT_COLUMNS) for row in snapshot_rows(games)
+        ]
         conn = connect(self.database_url)
         try:
             bootstrap_schema(conn)  # self-healing; safe if tables already exist
             with conn.cursor() as cur:
                 cur.executemany(sql, params)
+                if snap_params:
+                    cur.executemany(snapshot_insert_sql(), snap_params)
             conn.commit()
         finally:
             conn.close()

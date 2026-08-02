@@ -99,3 +99,25 @@ CREATE TABLE IF NOT EXISTS betting_games (
 );
 
 CREATE INDEX IF NOT EXISTS idx_betting_games_date ON betting_games (game_date);
+
+-- Append-only line-movement history: one row per game per scrape run.
+-- PK makes re-publishing the same fetch idempotent (DO NOTHING on conflict).
+CREATE TABLE IF NOT EXISTS betting_line_snapshots (
+    game_key                TEXT        NOT NULL,
+    captured_at_utc         TIMESTAMPTZ NOT NULL,
+    spread                  DOUBLE PRECISION,
+    total                   DOUBLE PRECISION,
+    ml_away                 INTEGER,
+    ml_home                 INTEGER,
+    spread_pct_bets_away    INTEGER,
+    spread_pct_money_away   INTEGER,
+    total_pct_bets_over     INTEGER,
+    total_pct_money_over    INTEGER,
+    ml_pct_bets_away        INTEGER,
+    ml_pct_money_away       INTEGER,
+    public_book             TEXT,
+    PRIMARY KEY (game_key, captured_at_utc)
+);
+
+CREATE INDEX IF NOT EXISTS idx_line_snapshots_game
+    ON betting_line_snapshots (game_key, captured_at_utc);

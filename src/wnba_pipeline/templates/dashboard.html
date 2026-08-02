@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Off Duty Locks — WNBA Research Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='odl.css') }}">
+</head>
+<body>
+<header class="hdr">
+  <div class="mark display">OFF DUTY <em>LOCKS</em></div>
+  <nav>
+    <a class="active" href="/">Dashboard</a>
+    <a href="/tables">Tables</a>
+  </nav>
+  <div class="updated num">{% if updated_at %}Last updated: {{ updated_at }}{% endif %}</div>
+</header>
+
+<main class="wrap">
+  <h1 class="page-title">WNBA Dashboard</h1>
+  <p class="subtitle">Betting splits · line history · signals · MODEL v0 · power rankings</p>
+
+  {% if not db_ok %}
+  <section class="panel"><p class="empty">Data temporarily unavailable — the database can’t be reached right now.</p></section>
+  {% endif %}
+
+  <section class="panel">
+    <h2>Today’s Slate</h2>
+    {% if games %}
+    <div class="games-box">
+    <table class="games num">
+      <thead>
+        <tr>
+          <th>Game</th>
+          <th>Spread<br><span class="sub">open · cur · sharp</span></th>
+          <th>Tickets %<br><span class="sub">away / home</span></th>
+          <th>Money %<br><span class="sub">away / home</span></th>
+          <th>Total<br><span class="sub">open · cur · sharp</span></th>
+          <th>O/U %<br><span class="sub">over / under</span></th>
+          <th>ML<br><span class="sub">away / home</span></th>
+          <th>Model v0<br><span class="sub">spread · total</span></th>
+          <th>Edge</th>
+          <th>Signals</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for game in games %}
+        <tr data-game-key="{{ game.game_key }}">
+          <td class="teams">
+            <div><span class="abbr">{{ game.away_abbr or game.away_name or "—" }}</span><span class="rec">{{ game.away_record or "" }}</span></div>
+            <div><span class="abbr">{{ game.home_abbr or game.home_name or "—" }}</span><span class="rec">{{ game.home_record or "" }}</span></div>
+          </td>
+          <td>{{ fmt(game.open_spread) }} · <strong>{{ fmt(game.current_spread) }}</strong> · {{ fmt(game.sharp_spread) }}</td>
+          <td>{{ pct(game.spread_pct_bets_away) }} / {{ pct(game.spread_pct_bets_home) }}</td>
+          <td>{{ pct(game.spread_pct_money_away) }} / {{ pct(game.spread_pct_money_home) }}</td>
+          <td>{{ fmt(game.open_total) }} · <strong>{{ fmt(game.current_total) }}</strong> · {{ fmt(game.sharp_total) }}</td>
+          <td>{{ pct(game.total_pct_bets_over) }} / {{ pct(game.total_pct_bets_under) }}</td>
+          <td>{{ ml(game.current_ml_away) }} / {{ ml(game.current_ml_home) }}</td>
+          <td>
+            {% if game.model %}{{ fmt(game.model.spread) }} · {{ fmt(game.model.total) }}{% else %}<span class="na">—</span>{% endif %}
+          </td>
+          <td>
+            {% if game.model and game.model.edge_score is not none %}
+            <span class="ring {{ ring_class(game.model.edge_score) }}">{{ "%.1f"|format(game.model.edge_score) }}</span>
+            <span class="ring-label">EDGE</span>
+            {% else %}<span class="na">—</span>{% endif %}
+          </td>
+          <td>
+            {% for s in game.signals %}<span class="sig-dot sig-{{ s.type }}" title="{{ s.market }}: {{ s.type }}{% if s.side %} → {{ s.side }}{% endif %}"></span>{% else %}<span class="sig-dot sig-none" title="no clear signal"></span>{% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="empty">No games on the slate right now. Check back on game day.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel detail" id="detail" hidden>
+    <h2 id="detail-title">Line History</h2>
+    <div class="tabs" role="tablist">
+      <button data-market="spread" class="active">Spread</button>
+      <button data-market="total">Total</button>
+      <button data-market="moneyline">Moneyline</button>
+    </div>
+    <div class="chart-box" id="chart"></div>
+    <div id="snaps"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Signal Legend</h2>
+    <div class="legend">
+      <span><span class="sig-dot sig-sharp-money"></span> Sharp Money — money % diverges ≥15 pts from tickets</span>
+      <span><span class="sig-dot sig-model-edge"></span> Model Edge — MODEL v0 disagrees with the market</span>
+      <span><span class="sig-dot sig-public-heavy"></span> Public Heavy — ≥70% of tickets on one side</span>
+      <span><span class="sig-dot sig-rlm"></span> Reverse Line Move — line moved against the ticket majority</span>
+      <span><span class="sig-dot sig-conflict"></span> Warning / Conflict — sharp money and line move disagree</span>
+      <span><span class="sig-dot sig-none"></span> No Clear Signal</span>
+      <span class="display">MODEL v0</span>
+      <span>= formula projection from Last-7 offensive ratings &amp; pace (points/possession × pace + {{ home_court }} home court). Not a trained model; EDGE measures model-vs-market disagreement.</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Offensive Power Rankings</h2>
+    <div class="rank-tabs" role="tablist">
+      <button data-split="last7" class="active">Last 7 Games</button>
+      <button data-split="ytd">Year to Date</button>
+    </div>
+    <table class="ranks num" id="ranks">
+      <thead><tr><th>Rank</th><th>Team</th><th>Off Rtg</th><th>Est. Poss</th><th>PTS/G</th><th>Record</th></tr></thead>
+      <tbody>
+        {% for team in rankings %}
+        <tr>
+          <td class="rank">{{ loop.index }}</td>
+          <td>{{ team.team_name }}</td>
+          <td>{{ fmt(team.offensive_rating) }}</td>
+          <td>{{ fmt(team.possessions) }}</td>
+          <td>{{ fmt(team.points) }}</td>
+          <td>{{ team.wins }}-{{ team.losses }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">No team stats published yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</main>
+
+<footer>
+  All data provided for informational purposes only. Please wager responsibly. · 21+ · 1-800-GAMBLER
+</footer>
+
+<script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+</body>
+</html>
