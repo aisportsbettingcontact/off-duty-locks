@@ -166,18 +166,21 @@ def test_dashboard_renders_games_and_rankings(client, monkeypatch):
     }])
     monkeypatch.setattr(web, "fetch_stats_by_team", lambda split="last7": {
         "a": {"offensive_rating": 104.0, "possessions": 80.0,
-              "wins": 11, "losses": 12, "team_name": "Mercury", "points": 80.9},
+              "wins": 11, "losses": 12, "team_name": "Phoenix Mercury", "points": 80.9},
         "h": {"offensive_rating": 110.0, "possessions": 84.0,
-              "wins": 18, "losses": 4, "team_name": "Aces", "points": 90.1},
+              "wins": 18, "losses": 4, "team_name": "Las Vegas Aces", "points": 90.1},
     })
     monkeypatch.setattr(web, "fetch_team_stats", lambda split: [
-        {"team_name": "Aces", "offensive_rating": 110.0, "possessions": 84.0,
+        {"team_name": "Las Vegas Aces", "offensive_rating": 110.0, "possessions": 84.0,
          "points": 90.1, "wins": 18, "losses": 4},
     ])
     html = client.get("/").data.decode()
-    assert "PHX" in html and "LAS" in html
     assert "Offensive Power Rankings" in html
-    assert "Aces" in html
+    # City muted, nickname bolded, abbreviations gone from the cell.
+    assert '<span class="tcity">Las Vegas</span> <span class="tnick">Aces</span>' in html
+    assert '<span class="tcity">Phoenix</span> <span class="tnick">Mercury</span>' in html
+    assert 'class="abbr"' not in html
+    assert "phx.png" in html and "lv.png" in html  # logos still keyed by abbr
     assert "-7.0" in html          # spread stays signed
     assert "+169.0" not in html    # totals are plain, never signed
     assert "169.0" in html
