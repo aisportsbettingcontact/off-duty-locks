@@ -145,13 +145,6 @@ a { color: var(--odl-text); text-decoration: none; }
 .ranks th:nth-child(2), .ranks td:nth-child(2) { text-align: left; }
 .ranks td.rank { color: var(--odl-accent); font-weight: 700; }
 
-/* Footer */
-footer {
-  border-top: 1px solid var(--odl-border);
-  color: var(--odl-text-muted); font-size: 12px;
-  text-align: center; padding: 18px 24px;
-}
-
 @media (max-width: 900px) {
   .games { font-size: 12px; }
   .hdr { gap: 14px; }

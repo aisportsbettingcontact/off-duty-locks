@@ -25,5 +25,6 @@ Verification before claiming done: `python -m pytest -q` ·
 `python3 qa/verify.py --repo-root .` · `python3 qa/pi_harness_audit.py --repo-root .`
 — real output only.
 
-Sports-betting product: responsible-gaming language stays on product surfaces
-(see brand law).
+Sports-betting product: the responsible-gaming footer was removed by owner
+directive 2026-08-02 (MASTER.md standing copy law); do not re-add it without
+owner say-so.
