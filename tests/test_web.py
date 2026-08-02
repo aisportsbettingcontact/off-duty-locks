@@ -102,7 +102,7 @@ def test_history_db_error_503(client, monkeypatch):
     assert client.get("/api/games/x/history").status_code == 503
 
 
-def test_index_renders_data(client, monkeypatch):
+def test_tables_renders_data(client, monkeypatch):
     monkeypatch.setattr(web, "fetch_team_stats",
                         lambda split: [{"team_name": "Las Vegas Aces",
                                         "offensive_rating": 110.5, "points": 85.0}])
@@ -110,29 +110,88 @@ def test_index_renders_data(client, monkeypatch):
                         lambda: [{"away_abbr": "PHX", "home_abbr": "LA",
                                   "game_date": "2026-07-22", "current_spread": 1.5,
                                   "spread_rlm": True, "total_rlm": None}])
-    html = client.get("/").get_data(as_text=True)
+    html = client.get("/tables").get_data(as_text=True)
     assert "Las Vegas Aces" in html
     assert "PHX @ LA" in html
     assert "RLM" in html  # spread_rlm True -> badge
 
 
-def test_index_empty_state(client, monkeypatch):
+def test_tables_empty_state(client, monkeypatch):
     monkeypatch.setattr(web, "fetch_team_stats", lambda split: [])
     monkeypatch.setattr(web, "fetch_betting", lambda: [])
-    html = client.get("/").get_data(as_text=True)
+    html = client.get("/tables").get_data(as_text=True)
     assert "No team stats published yet." in html
     assert "No games on the current slate." in html
 
 
-def test_index_db_error_renders_warning_not_500(client, monkeypatch):
+def test_tables_db_error_renders_warning_not_500(client, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("db down")
 
     monkeypatch.setattr(web, "fetch_team_stats", boom)
     monkeypatch.setattr(web, "fetch_betting", boom)
-    r = client.get("/")
+    r = client.get("/tables")
     assert r.status_code == 200  # friendly empty state, never a 500
     assert "temporarily unavailable" in r.get_data(as_text=True)
+
+
+def _empty_dashboard(monkeypatch):
+    monkeypatch.setattr(web, "fetch_betting", lambda: [])
+    monkeypatch.setattr(web, "fetch_stats_by_team", lambda split="last7": {})
+    monkeypatch.setattr(web, "fetch_team_stats", lambda split: [])
+
+
+def test_dashboard_renders_with_brand_copy(client, monkeypatch):
+    _empty_dashboard(monkeypatch)
+    r = client.get("/")
+    html = r.data.decode()
+    assert r.status_code == 200
+    assert "OFF DUTY" in html and "LOCKS" in html
+    assert "Please wager responsibly." in html
+    assert "1-800-GAMBLER" in html
+    assert "MODEL v0" in html
+    assert "Signal Legend" in html
+
+
+def test_dashboard_renders_games_and_rankings(client, monkeypatch):
+    monkeypatch.setattr(web, "fetch_betting", lambda: [{
+        "game_key": "2026-08-02:PHX@LAS", "game_date": "2026-08-02",
+        "away_abbr": "PHX", "home_abbr": "LAS",
+        "away_name": "Mercury", "home_name": "Aces",
+        "away_team_id": "a", "home_team_id": "h",
+        "open_spread": -6.5, "current_spread": -7.0, "sharp_spread": -7.5,
+        "spread_pct_bets_away": 72, "spread_pct_money_away": 81,
+        "open_total": 168.5, "current_total": 169.0, "sharp_total": 170.5,
+        "total_pct_bets_over": 47, "total_pct_money_over": 53,
+        "current_ml_away": 220, "current_ml_home": -275,
+        "spread_rlm": True, "spread_line_move": -0.5,
+    }])
+    monkeypatch.setattr(web, "fetch_stats_by_team", lambda split="last7": {
+        "a": {"offensive_rating": 104.0, "possessions": 80.0,
+              "wins": 11, "losses": 12, "team_name": "Mercury", "points": 80.9},
+        "h": {"offensive_rating": 110.0, "possessions": 84.0,
+              "wins": 18, "losses": 4, "team_name": "Aces", "points": 90.1},
+    })
+    monkeypatch.setattr(web, "fetch_team_stats", lambda split: [
+        {"team_name": "Aces", "offensive_rating": 110.0, "possessions": 84.0,
+         "points": 90.1, "wins": 18, "losses": 4},
+    ])
+    html = client.get("/").data.decode()
+    assert "PHX" in html and "LAS" in html
+    assert "Offensive Power Rankings" in html
+    assert "Aces" in html
+    assert "11-12" in html  # away record joined from team stats
+
+
+def test_dashboard_db_error_still_200(client, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(web, "fetch_betting", boom)
+    monkeypatch.setattr(web, "fetch_stats_by_team", boom)
+    monkeypatch.setattr(web, "fetch_team_stats", boom)
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "temporarily unavailable" in r.data.decode()
 
 
 def test_jsonable_coercion():

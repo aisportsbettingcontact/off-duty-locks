@@ -24,10 +24,11 @@ from decimal import Decimal
 from html import escape
 from typing import Any
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, render_template, request
 
 from wnba_pipeline import db
 from wnba_pipeline.enrich import enrich_games
+from wnba_pipeline.model import HOME_COURT_POINTS
 
 logger = logging.getLogger("wnba_pipeline.web")
 
@@ -167,15 +168,71 @@ def api_game_history(game_key: str):
 # HTML dashboard
 # --------------------------------------------------------------------------- #
 
+def _dfmt(value: Any) -> str:
+    """Dashboard number: signed one-decimal for floats, em-dash for None."""
+    if value is None:
+        return "—"
+    if isinstance(value, float):
+        return f"{value:+.1f}"
+    return str(value)
+
+
+def _dpct(value: Any) -> str:
+    return "—" if value is None else f"{value}%"
+
+
+def _dml(value: Any) -> str:
+    if value is None:
+        return "—"
+    return f"+{value}" if value > 0 else str(value)
+
+
+def _ring_class(score: float) -> str:
+    if score >= 7.5:
+        return "hot"
+    if score >= 5.0:
+        return "warm"
+    return "cool"
+
+
 @app.get("/")
 def index():
+    """The research dashboard (design spec 2026-08-02; brand law MASTER.md)."""
+    db_ok = True
+    games: list[dict[str, Any]] = []
+    rankings: list[dict[str, Any]] = []
+    stats: dict[str, dict[str, Any]] = {}
+    try:
+        stats = fetch_stats_by_team("last7")
+        games = enrich_games(fetch_betting(), stats)
+        rankings = fetch_team_stats("last7")
+    except Exception as exc:  # noqa: BLE001 - render an empty state, not a 500
+        logger.warning("dashboard queries failed: %s", exc)
+        db_ok = False
+    for g in games:
+        away = stats.get(str(g.get("away_team_id")))
+        home = stats.get(str(g.get("home_team_id")))
+        g["away_record"] = f"{away['wins']}-{away['losses']}" if away and away.get("wins") is not None else ""
+        g["home_record"] = f"{home['wins']}-{home['losses']}" if home and home.get("wins") is not None else ""
+    updated = max((str(g.get("fetched_at_utc") or "") for g in games), default="")
+    return render_template(
+        "dashboard.html",
+        games=games, rankings=rankings, db_ok=db_ok,
+        updated_at=updated, home_court=HOME_COURT_POINTS,
+        fmt=_dfmt, pct=_dpct, ml=_dml, ring_class=_ring_class,
+    )
+
+
+@app.get("/tables")
+def tables():
+    """Legacy stat/betting tables (the pre-dashboard index)."""
     try:
         last7 = fetch_team_stats("last7")
         ytd = fetch_team_stats("ytd")
         betting = fetch_betting()
         db_ok = True
     except Exception as exc:  # noqa: BLE001 - render an empty state, not a 500
-        logger.warning("dashboard query failed: %s", exc)
+        logger.warning("tables query failed: %s", exc)
         last7, ytd, betting, db_ok = [], [], [], False
     return _render_page(last7, ytd, betting, db_ok)
 
