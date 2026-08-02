@@ -17,10 +17,13 @@ Rankings (Last 7 / YTD) — all visible on one dashboard without opening other
 sites.
 
 **Non-goals / honesty constraints:**
-- **No model surface.** The repo has no predictive model, so no model
-  spread/total columns, no "Model Edge" signal, no play ratings. Signals come
-  only from real scraped data. The model surface returns when a real model
-  exists.
+- **Model surface = Model v0 (owner revision 2026-08-02).** The owner directed
+  the model columns stay populated. Since no trained model exists, the model
+  surface is **Model v0**: a transparent, deterministic formula over the
+  team-stats the pipeline already verifies (exactly like the owner's
+  offensive-rating formula — documented math, never fabricated numbers, and
+  labeled "MODEL v0" in the UI). See §2b. It upgrades to a trained model
+  later without changing the surface.
 - **No history backfill.** Line snapshots accrue from deploy forward; the
   detail panel shows an honest "history begins <date>" empty state until
   snapshots exist. Opening lines (already stored) always render.
@@ -96,6 +99,45 @@ type: "sharp-money"|"public-heavy"|"rlm"|"conflict", side: "away"|"home"|
 fire a signal (missing data is missing, not neutral). Colors are presentation
 concerns mapped in the UI from brand-law tokens: green sharp / yellow public /
 orange RLM / red conflict / gray none.
+
+## 2b. Model v0 — `src/wnba_pipeline/model.py` (pure, tested)
+
+Deterministic projections from `team_stats` split `last7` (current form),
+computed at read time in the web layer (not stored — v0 has no training
+state). All functions null-safe: any missing input → all model fields null,
+no model signal, "—" rendered.
+
+Named constants and formulas (away-side spread convention matches
+`betting_games.current_spread`):
+
+```
+HOME_COURT_POINTS       = 2.5      # WNBA home advantage, documented constant
+MODEL_EDGE_SPREAD_MIN   = 1.5      # points of spread edge to fire model-edge
+MODEL_EDGE_TOTAL_MIN    = 2.0      # points of total edge to fire model-edge
+
+poss_avg          = (possessions_away + possessions_home) / 2
+proj_margin_home  = (ORtg_home − ORtg_away) × poss_avg / 100 + HOME_COURT_POINTS
+model_spread_away = proj_margin_home          # away line: negative = away favored
+model_total       = (ORtg_away + ORtg_home) × poss_avg / 100
+
+edge_spread = current_spread − model_spread_away   # > 0 → value on AWAY, < 0 → HOME
+edge_total  = model_total − current_total          # > 0 → value on OVER,  < 0 → UNDER
+
+edge_score  = min(10, 2.0 × |edge_spread| + 1.0 × |edge_total|)   # 0–10, ring-colored
+```
+
+- **model-edge signal** (blue `#3B82F6`, brand token `--odl-signal-model`):
+  fires when `|edge_spread| ≥ MODEL_EDGE_SPREAD_MIN` (side per sign) or
+  `|edge_total| ≥ MODEL_EDGE_TOTAL_MIN` (over/under per sign); joins the §2
+  signal contract as `type: "model-edge"`.
+- **Edge Score ring** uses the brand-law rating-ring thresholds (green ≥ 7.5,
+  yellow 5.0–7.4, orange < 5.0) and is labeled **EDGE** — it measures
+  model-vs-market disagreement, and the UI's legend says exactly that.
+- API: `/api/betting` games gain `model: {spread, total, edge_spread,
+  edge_total, edge_score}` (nullable as a unit).
+- UI: games grid gains MODEL columns (model spread · model total · edges) and
+  the EDGE ring; a "MODEL v0" chip links the legend entry explaining the
+  formula in one sentence.
 
 ## 3. API
 
