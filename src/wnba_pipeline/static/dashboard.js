@@ -29,7 +29,7 @@ function drawChart() {
   const { points, opening, label } = seriesFor(market);
   const data = points.filter(p => p[1] !== null && p[1] !== undefined);
   if (!data.length) {
-    chartBox.innerHTML = '<p class="empty">No movement history yet — snapshots record every 30 minutes on game days from here forward.' +
+    chartBox.innerHTML = '<p class="empty">No movement history yet. Snapshots start recording every 30 minutes on game days.' +
       (opening !== null && opening !== undefined ? ` Opening ${label.toLowerCase()}: <strong class="num">${opening}</strong>.` : "") + "</p>";
     return;
   }
@@ -49,7 +49,7 @@ function drawChart() {
   });
 
   const dots = data.map(p =>
-    `<circle cx="${X(new Date(p[0]).getTime())}" cy="${Y(p[1])}" r="3.5" fill="${ACCENT}"/>`).join("");
+    `<circle cx="${X(new Date(p[0]).getTime())}" cy="${Y(p[1])}" r="3.5" fill="${ACCENT}"><title>${fmtTime(p[0])}: ${p[1]}</title></circle>`).join("");
   const openLine = (opening !== null && opening !== undefined)
     ? `<line x1="${PAD}" x2="${W - PAD}" y1="${Y(opening)}" y2="${Y(opening)}" stroke="${MUTED}" stroke-dasharray="4 4"/>` +
       `<text x="${W - PAD}" y="${Y(opening) - 6}" fill="${MUTED}" font-size="11" text-anchor="end">open ${opening}</text>`
@@ -86,7 +86,8 @@ function drawSnaps() {
 
 async function openGame(key) {
   detail.hidden = false;
-  titleEl.textContent = "Line History — " + key.split(":").pop();
+  requestAnimationFrame(() => detail.classList.add("open")); // materialize (fade + rise)
+  titleEl.textContent = "Line History: " + key.split(":").pop();
   chartBox.innerHTML = '<p class="empty">Loading…</p>';
   snapsBox.innerHTML = "";
   try {
@@ -95,7 +96,7 @@ async function openGame(key) {
     history = await r.json();
   } catch {
     history = null;
-    chartBox.innerHTML = '<p class="empty">History unavailable right now.</p>';
+    chartBox.innerHTML = '<p class="empty">History unavailable.</p>';
     return;
   }
   drawChart();
@@ -104,8 +105,15 @@ async function openGame(key) {
   window.location.hash = "game=" + encodeURIComponent(key);
 }
 
-document.querySelectorAll(".games tbody tr[data-game-key]").forEach(tr =>
-  tr.addEventListener("click", () => openGame(tr.dataset.gameKey)));
+document.querySelectorAll(".games tbody tr[data-game-key]").forEach(tr => {
+  tr.addEventListener("click", () => openGame(tr.dataset.gameKey));
+  tr.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      openGame(tr.dataset.gameKey);
+    }
+  });
+});
 
 document.querySelectorAll(".detail .tabs button").forEach(btn =>
   btn.addEventListener("click", () => {
@@ -131,7 +139,7 @@ document.querySelectorAll(".rank-tabs button").forEach(btn =>
         <td class="num">${t.wins ?? "—"}-${t.losses ?? "—"}</td></tr>`).join("") ||
         '<tr><td colspan="6" class="empty">No team stats published yet.</td></tr>';
     } catch {
-      body.innerHTML = '<tr><td colspan="6" class="empty">Rankings unavailable right now.</td></tr>';
+      body.innerHTML = '<tr><td colspan="6" class="empty">Rankings unavailable.</td></tr>';
     }
   }));
 

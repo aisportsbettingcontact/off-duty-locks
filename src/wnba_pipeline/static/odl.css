@@ -32,12 +32,14 @@ body {
 .num { font-variant-numeric: tabular-nums; }
 a { color: var(--odl-text); text-decoration: none; }
 
-/* Header */
+/* Header — translucent material; content scrolls underneath (apple-design §12) */
 .hdr {
   position: sticky; top: 0; z-index: 10;
   display: flex; align-items: center; gap: 28px;
   padding: 14px 24px;
-  background: var(--odl-bg);
+  background: rgba(11, 11, 13, 0.72);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
   border-bottom: 1px solid var(--odl-border);
 }
 .hdr .mark { font-size: 22px; }
@@ -50,7 +52,8 @@ a { color: var(--odl-text); text-decoration: none; }
 
 /* Layout */
 .wrap { max-width: 1280px; margin: 0 auto; padding: 20px 24px 40px; }
-.page-title { font-size: 30px; margin-bottom: 2px; }
+/* Large display type: tight leading, negative tracking (apple-design §15) */
+.page-title { font-size: 30px; line-height: 1.05; letter-spacing: -0.02em; margin-bottom: 2px; }
 .subtitle { color: var(--odl-text-muted); margin-bottom: 18px; }
 .panel {
   background: var(--odl-panel);
@@ -71,8 +74,11 @@ a { color: var(--odl-text); text-decoration: none; }
 }
 .games th:first-child, .games td:first-child { text-align: left; }
 .games td { padding: 8px 10px; text-align: right; vertical-align: middle; white-space: nowrap; }
-.games tbody tr { border-bottom: 1px solid var(--odl-border); cursor: pointer; transition: background var(--ease); }
+.games tbody tr { border-bottom: 1px solid var(--odl-border); cursor: pointer; transition: background var(--ease), transform 100ms ease-out; }
 .games tbody tr:hover { background: rgba(255, 92, 28, 0.06); }
+/* Feedback on press, not on release (apple-design §1) */
+.games tbody tr:active { background: rgba(255, 92, 28, 0.12); transform: scale(0.995); }
+.games tbody tr:focus-visible { outline: 2px solid var(--odl-accent); outline-offset: -2px; }
 .teams .abbr { font-weight: 600; }
 .teams .rec { color: var(--odl-text-muted); font-size: 12px; margin-left: 6px; }
 .sub { color: var(--odl-text-muted); font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: 0; }
@@ -116,6 +122,12 @@ a { color: var(--odl-text); text-decoration: none; }
   font: inherit; padding: 6px 14px; cursor: pointer; transition: all var(--ease);
 }
 .detail .tabs button.active, .rank-tabs button.active { background: var(--odl-accent); color: #0B0B0D; font-weight: 600; }
+.detail .tabs button:active, .rank-tabs button:active { transform: scale(0.97); }
+.detail .tabs button:focus-visible, .rank-tabs button:focus-visible, .hdr nav a:focus-visible { outline: 2px solid var(--odl-accent); outline-offset: 2px; }
+
+/* Detail panel materializes: fade + rise from its trigger direction (§7, §12) */
+.detail { opacity: 0; transform: translateY(8px); transition: opacity var(--ease), transform var(--ease); }
+.detail.open { opacity: 1; transform: none; }
 .chart-box { overflow-x: auto; }
 .chart-box svg { display: block; }
 .empty { color: var(--odl-text-muted); padding: 18px 0; }
@@ -144,4 +156,14 @@ footer {
   .games { font-size: 12px; }
   .hdr { gap: 14px; }
   .wrap { padding: 14px 12px 32px; }
+}
+
+/* Gentler equivalents, not dead ones (apple-design §14) */
+@media (prefers-reduced-motion: reduce) {
+  .detail { transform: none; transition: opacity 200ms ease; }
+  .games tbody tr, .games tbody tr:active,
+  .detail .tabs button:active, .rank-tabs button:active { transform: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .hdr { background: var(--odl-bg); backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
