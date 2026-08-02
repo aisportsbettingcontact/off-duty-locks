@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Off Duty Locks — WNBA Research Dashboard</title>
+<title>Off Duty Locks · WNBA Research Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='odl.css') }}">
@@ -23,7 +23,7 @@
   <p class="subtitle">Betting splits · line history · signals · MODEL v0 · power rankings</p>
 
   {% if not db_ok %}
-  <section class="panel"><p class="empty">Data temporarily unavailable — the database can’t be reached right now.</p></section>
+  <section class="panel"><p class="empty">Data temporarily unavailable. The database is unreachable.</p></section>
   {% endif %}
 
   <section class="panel">
@@ -47,7 +47,7 @@
       </thead>
       <tbody>
         {% for game in games %}
-        <tr data-game-key="{{ game.game_key }}">
+        <tr data-game-key="{{ game.game_key }}" tabindex="0" aria-label="Open line history for {{ game.away_abbr or game.away_name }} at {{ game.home_abbr or game.home_name }}">
           <td class="teams">
             <div><span class="abbr">{{ game.away_abbr or game.away_name or "—" }}</span><span class="rec">{{ game.away_record or "" }}</span></div>
             <div><span class="abbr">{{ game.home_abbr or game.home_name or "—" }}</span><span class="rec">{{ game.home_record or "" }}</span></div>
@@ -76,7 +76,7 @@
     </table>
     </div>
     {% else %}
-    <p class="empty">No games on the slate right now. Check back on game day.</p>
+    <p class="empty">No games on today’s slate.</p>
     {% endif %}
   </section>
 
@@ -94,14 +94,14 @@
   <section class="panel">
     <h2>Signal Legend</h2>
     <div class="legend">
-      <span><span class="sig-dot sig-sharp-money"></span> Sharp Money — money % diverges ≥15 pts from tickets</span>
-      <span><span class="sig-dot sig-model-edge"></span> Model Edge — MODEL v0 disagrees with the market</span>
-      <span><span class="sig-dot sig-public-heavy"></span> Public Heavy — ≥70% of tickets on one side</span>
-      <span><span class="sig-dot sig-rlm"></span> Reverse Line Move — line moved against the ticket majority</span>
-      <span><span class="sig-dot sig-conflict"></span> Warning / Conflict — sharp money and line move disagree</span>
+      <span><span class="sig-dot sig-sharp-money"></span> Sharp Money: money % sits 15+ points off ticket %</span>
+      <span><span class="sig-dot sig-model-edge"></span> Model Edge: MODEL v0 disagrees with the market</span>
+      <span><span class="sig-dot sig-public-heavy"></span> Public Heavy: 70%+ of tickets on one side</span>
+      <span><span class="sig-dot sig-rlm"></span> Reverse Line Move: the line moved against the ticket majority</span>
+      <span><span class="sig-dot sig-conflict"></span> Warning / Conflict: sharp money and the line move point opposite ways</span>
       <span><span class="sig-dot sig-none"></span> No Clear Signal</span>
       <span class="display">MODEL v0</span>
-      <span>= formula projection from Last-7 offensive ratings &amp; pace (points/possession × pace + {{ home_court }} home court). Not a trained model; EDGE measures model-vs-market disagreement.</span>
+      <span>projects each game from Last-7 offensive ratings and pace, plus {{ home_court }} home court. A formula, not a trained model. EDGE scores its disagreement with the market.</span>
     </div>
   </section>
 
