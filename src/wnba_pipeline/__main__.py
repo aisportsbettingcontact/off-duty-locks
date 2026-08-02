@@ -275,7 +275,8 @@ def _cmd_validate_data(args: argparse.Namespace) -> int:
 
     now = datetime.now(timezone.utc)
     findings = dq.run_all(by_split, betting, newest, now,
-                          expected_teams=expected, last_split=args.last_split)
+                          expected_teams=expected, last_split=args.last_split,
+                          scope=getattr(args, "scope", "full"))
 
     if getattr(args, "as_json", False):
         for f in findings:
@@ -562,6 +563,10 @@ def build_parser() -> argparse.ArgumentParser:
                       help="the Last-N split label to compare against ytd")
     vd_p.add_argument("--warn-is-failure", action="store_true",
                       help="exit non-zero on WARN as well as FAIL")
+    vd_p.add_argument("--scope", choices=("full", "betting"), default="full",
+                      help="betting = gate only the betting checks (the 30-min "
+                           "scrape cannot refresh team stats; full validation "
+                           "still runs wherever team stats are written)")
     vd_p.add_argument("--json", action="store_true", dest="as_json",
                       help="emit findings as JSON lines instead of a report")
     vd_p.set_defaults(func=_cmd_validate_data)
