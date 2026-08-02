@@ -246,3 +246,34 @@ def test_run_all_clean_dataset_is_not_a_failure():
         expected_teams=["Lynx"],
     )
     assert dq.worst_severity(findings) != dq.FAIL
+
+
+def test_run_all_betting_scope_gates_on_betting_only():
+    """Scheduled betting scrapes gate on betting health; team-stats findings
+    (freshness, split mislabelling) belong to the team-stats path."""
+    now = dt.datetime(2026, 7, 29, 12, 0, tzinfo=dt.timezone.utc)
+    rows = [team("Lynx"), team("Aces")]
+    findings = dq.run_all(
+        {"last7": [dict(r) for r in rows], "ytd": [dict(r) for r in rows]},
+        [game("a", now.date())],
+        now - dt.timedelta(hours=200),  # very stale team stats
+        now,
+        expected_teams=["Lynx", "Aces"],
+        scope="betting",
+    )
+    assert all(c.startswith("betting.") for c in codes(findings))
+    assert dq.worst_severity(findings) != dq.FAIL
+
+
+def test_run_all_full_scope_is_default():
+    now = dt.datetime(2026, 7, 29, 12, 0, tzinfo=dt.timezone.utc)
+    rows = [team("Lynx"), team("Aces")]
+    findings = dq.run_all(
+        {"last7": [dict(r) for r in rows], "ytd": [dict(r) for r in rows]},
+        [game("a", now.date())],
+        now - dt.timedelta(hours=200),
+        now,
+        expected_teams=["Lynx", "Aces"],
+    )
+    assert "freshness.stale" in codes(findings)
+    assert "cross.splits_identical" in codes(findings)

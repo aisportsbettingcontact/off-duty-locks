@@ -15,10 +15,11 @@ name: Scrape + Publish (DB)
 
 on:
   schedule:
-    # Every 30 min through the US pregame + in-play windows, season months only
-    # (May–Oct). WNBA tip-offs cluster ~23:00–03:00 UTC; lines move all afternoon.
-    - cron: "*/30 12-23 * 5-10 *"
-    - cron: "*/30 0-4 * 5-10 *"
+    # Every 30 min around the full 24h clock, season months only (May–Oct).
+    # Owner directive 2026-08-02: continuous coverage so the line-history
+    # snapshots and the dashboard's 30-min auto-refresh always have fresh data.
+    # These runs hit VSIN + Action Network only — never stats.wnba.com.
+    - cron: "*/30 * * 5-10 *"
   workflow_dispatch:
     inputs:
       seed_team_stats:
@@ -95,12 +96,17 @@ jobs:
       # fault that only exists BETWEEN rows — most importantly two splits
       # derived from the same source, which is how `ytd` came to hold Last-7
       # numbers while every individual run reported PASSED.
-      - name: Validate the serving tables
+      # Gate the run on what THIS run can affect: the betting tables. Team
+      # stats cannot be refreshed from a datacenter runner (Akamai blocks it),
+      # so their freshness/consistency findings must not fail every 30-minute
+      # betting scrape — the full validation still prints in the summary below
+      # and still gates the paths that actually write team stats.
+      - name: Validate the serving tables (betting scope gates this run)
         id: validate
         run: |
           set -uo pipefail
           set +e
-          wnba-pipeline validate-data --season 2026
+          wnba-pipeline validate-data --season 2026 --scope betting
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
           set -e
 

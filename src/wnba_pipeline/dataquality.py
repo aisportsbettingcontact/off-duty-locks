@@ -345,18 +345,26 @@ def run_all(team_rows_by_split: dict[str, Sequence[Row]],
             newest_updated_at: _dt.datetime | None,
             now: _dt.datetime,
             expected_teams: Iterable[str] | None = None,
-            last_split: str = "last7") -> list[Finding]:
-    """Run every check and return all findings, most severe concerns included."""
+            last_split: str = "last7",
+            scope: str = "full") -> list[Finding]:
+    """Run checks and return all findings, most severe concerns included.
+
+    scope="betting" runs only the betting-table checks — the gate for the
+    30-minute betting scrapes, which cannot refresh team stats (stats.wnba.com
+    blocks datacenter runners) and must not go red for that known limitation.
+    The full scope stays the gate wherever team stats are actually written."""
     findings: list[Finding] = []
-    for split in sorted(team_rows_by_split):
-        findings += check_team_split(split, team_rows_by_split[split], expected_teams)
-    findings += check_cross_split(
-        team_rows_by_split.get(last_split, []),
-        team_rows_by_split.get("ytd", []),
-        last_split=last_split,
-    )
+    if scope != "betting":
+        for split in sorted(team_rows_by_split):
+            findings += check_team_split(split, team_rows_by_split[split], expected_teams)
+        findings += check_cross_split(
+            team_rows_by_split.get(last_split, []),
+            team_rows_by_split.get("ytd", []),
+            last_split=last_split,
+        )
     findings += check_betting(betting_rows, now.date())
-    findings += check_freshness(newest_updated_at, now)
+    if scope != "betting":
+        findings += check_freshness(newest_updated_at, now)
     return findings
 
 
