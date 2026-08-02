@@ -8,3 +8,7 @@ build/
 data/tmp/
 .coverage
 qa/verify-report.json
+
+# pi coding agent (.pi/ project config is committed; local package installs are not)
+.pi/npm/
+.pi/git/

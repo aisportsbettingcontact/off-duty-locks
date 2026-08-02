@@ -42,6 +42,9 @@ jobs:
       - name: Independent verification harness
         run: python3 qa/verify.py --repo-root .
 
+      - name: pi harness audit (structural, model-free)
+        run: python3 qa/pi_harness_audit.py --repo-root .
+
       - name: End-to-end fixture run is idempotent (offline)
         run: |
           set -euo pipefail

@@ -14,3 +14,13 @@ scripts
 *.egg-info
 .venv
 venv
+
+# Agent-harness files — never part of the runtime image
+.pi
+design-system
+AGENTS.md
+CLAUDE.md
+CODEX.md
+HARNESS.md
+LLM.md
+SKILLS.md
