@@ -169,20 +169,35 @@ def api_game_history(game_key: str):
 # --------------------------------------------------------------------------- #
 
 def _dfmt(value: Any) -> str:
-    """Dashboard number: signed one-decimal for floats, em-dash for None."""
-    if value is None:
+    """Plain dashboard number: one decimal for floats, em-dash for missing.
+
+    Tolerates Jinja Undefined (a partial row never crashes the page)."""
+    if isinstance(value, bool):
         return "—"
     if isinstance(value, float):
-        return f"{value:+.1f}"
-    return str(value)
+        return f"{value:.1f}"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        return value
+    return "—"
+
+
+def _dsigned(value: Any) -> str:
+    """Signed line value (spreads, edges): +/- one decimal."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "—"
+    return f"{value:+.1f}"
 
 
 def _dpct(value: Any) -> str:
-    return "—" if value is None else f"{value}%"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "—"
+    return f"{value}%"
 
 
 def _dml(value: Any) -> str:
-    if value is None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return "—"
     return f"+{value}" if value > 0 else str(value)
 
@@ -193,6 +208,19 @@ def _ring_class(score: float) -> str:
     if score >= 5.0:
         return "warm"
     return "cool"
+
+
+# ESPN CDN slugs for team logos (browser-side hotlink; not a pipeline request).
+ESPN_LOGO_SLUGS = {
+    "ATL": "atl", "CHI": "chi", "CONN": "conn", "DAL": "dal", "GS": "gs",
+    "IND": "ind", "LA": "la", "LAS": "lv", "LVA": "lv", "MIN": "min", "NY": "ny",
+    "PHX": "phx", "POR": "por", "SEA": "sea", "TOR": "tor", "WAS": "wsh",
+}
+
+
+def _logo_url(abbr: Any) -> str | None:
+    slug = ESPN_LOGO_SLUGS.get(str(abbr or "").upper())
+    return f"https://a.espncdn.com/i/teamlogos/wnba/500/{slug}.png" if slug else None
 
 
 @app.get("/")
@@ -209,17 +237,12 @@ def index():
     except Exception as exc:  # noqa: BLE001 - render an empty state, not a 500
         logger.warning("dashboard queries failed: %s", exc)
         db_ok = False
-    for g in games:
-        away = stats.get(str(g.get("away_team_id")))
-        home = stats.get(str(g.get("home_team_id")))
-        g["away_record"] = f"{away['wins']}-{away['losses']}" if away and away.get("wins") is not None else ""
-        g["home_record"] = f"{home['wins']}-{home['losses']}" if home and home.get("wins") is not None else ""
     updated = max((str(g.get("fetched_at_utc") or "") for g in games), default="")
     return render_template(
         "dashboard.html",
         games=games, rankings=rankings, db_ok=db_ok,
         updated_at=updated, home_court=HOME_COURT_POINTS,
-        fmt=_dfmt, pct=_dpct, ml=_dml, ring_class=_ring_class,
+        fmt=_dfmt, sfmt=_dsigned, pct=_dpct, ml=_dml, ring_class=_ring_class, logo=_logo_url,
     )
 
 

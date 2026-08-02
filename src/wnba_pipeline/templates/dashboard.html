@@ -15,7 +15,7 @@
     <a class="active" href="/">Dashboard</a>
     <a href="/tables">Tables</a>
   </nav>
-  <div class="updated num">{% if updated_at %}Last updated: {{ updated_at }}{% endif %}</div>
+  <div class="updated num" id="updated" data-iso="{{ updated_at }}"></div>
 </header>
 
 <main class="wrap">
@@ -49,17 +49,22 @@
         {% for game in games %}
         <tr data-game-key="{{ game.game_key }}" tabindex="0" aria-label="Open line history for {{ game.away_abbr or game.away_name }} at {{ game.home_abbr or game.home_name }}">
           <td class="teams">
-            <div><span class="abbr">{{ game.away_abbr or game.away_name or "—" }}</span><span class="rec">{{ game.away_record or "" }}</span></div>
-            <div><span class="abbr">{{ game.home_abbr or game.home_name or "—" }}</span><span class="rec">{{ game.home_record or "" }}</span></div>
+            {% set away_logo = logo(game.away_abbr) %}{% if away_logo %}<img class="logo" src="{{ away_logo }}" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}
+            <span class="abbr">{{ game.away_abbr or "—" }}</span>
+            <span class="tname">{{ game.away_name or "" }}</span>
+            <span class="at">@</span>
+            <span class="abbr">{{ game.home_abbr or "—" }}</span>
+            <span class="tname">{{ game.home_name or "" }}</span>
+            {% set home_logo = logo(game.home_abbr) %}{% if home_logo %}<img class="logo" src="{{ home_logo }}" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}
           </td>
-          <td>{{ fmt(game.open_spread) }} · <strong>{{ fmt(game.current_spread) }}</strong> · {{ fmt(game.sharp_spread) }}</td>
+          <td>{{ sfmt(game.open_spread) }} · <strong>{{ sfmt(game.current_spread) }}</strong> · {{ sfmt(game.sharp_spread) }}</td>
           <td>{{ pct(game.spread_pct_bets_away) }} / {{ pct(game.spread_pct_bets_home) }}</td>
           <td>{{ pct(game.spread_pct_money_away) }} / {{ pct(game.spread_pct_money_home) }}</td>
           <td>{{ fmt(game.open_total) }} · <strong>{{ fmt(game.current_total) }}</strong> · {{ fmt(game.sharp_total) }}</td>
           <td>{{ pct(game.total_pct_bets_over) }} / {{ pct(game.total_pct_bets_under) }}</td>
           <td>{{ ml(game.current_ml_away) }} / {{ ml(game.current_ml_home) }}</td>
           <td>
-            {% if game.model %}{{ fmt(game.model.spread) }} · {{ fmt(game.model.total) }}{% else %}<span class="na">—</span>{% endif %}
+            {% if game.model %}{{ sfmt(game.model.spread) }} · {{ fmt(game.model.total) }}{% else %}<span class="na">—</span>{% endif %}
           </td>
           <td>
             {% if game.model and game.model.edge_score is not none %}
