@@ -103,6 +103,23 @@ def fetch_stats_by_team(split: str = "last7") -> dict[str, dict[str, Any]]:
     )}
 
 
+def fetch_line_history(game_key: str) -> dict[str, Any] | None:
+    """Opening values + ordered snapshots for one game; None if unknown."""
+    opening = _rows(
+        "SELECT open_spread AS spread, open_total AS total, "
+        "open_ml_away AS ml_away, open_ml_home AS ml_home "
+        "FROM betting_games WHERE game_key = %s", (game_key,),
+    )
+    if not opening:
+        return None
+    cols = ", ".join(db.SNAPSHOT_COLUMNS)
+    snapshots = _rows(
+        f"SELECT {cols} FROM betting_line_snapshots "
+        "WHERE game_key = %s ORDER BY captured_at_utc", (game_key,),
+    )
+    return {"game_key": game_key, "opening": opening[0], "snapshots": snapshots}
+
+
 # --------------------------------------------------------------------------- #
 # JSON API
 # --------------------------------------------------------------------------- #
@@ -132,6 +149,18 @@ def api_betting():
     except Exception as exc:  # noqa: BLE001
         logger.warning("betting query failed: %s", exc)
         return jsonify({"error": "data temporarily unavailable"}), 503
+
+
+@app.get("/api/games/<path:game_key>/history")
+def api_game_history(game_key: str):
+    try:
+        history = fetch_line_history(game_key)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("history query failed: %s", exc)
+        return jsonify({"error": "data temporarily unavailable"}), 503
+    if history is None:
+        return jsonify({"error": "unknown game"}), 404
+    return jsonify(history)
 
 
 # --------------------------------------------------------------------------- #

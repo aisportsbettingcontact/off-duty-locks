@@ -76,6 +76,32 @@ def test_api_betting_is_enriched(client, monkeypatch):
     assert isinstance(game["signals"], list)
 
 
+def test_history_endpoint_ok(client, monkeypatch):
+    monkeypatch.setattr(web, "fetch_line_history", lambda key: {
+        "game_key": key,
+        "opening": {"spread": -6.5, "total": 168.5, "ml_away": 220, "ml_home": -275},
+        "snapshots": [
+            {"captured_at_utc": "2026-08-02T12:00:00+00:00", "spread": -6.5},
+            {"captured_at_utc": "2026-08-02T15:00:00+00:00", "spread": -7.0},
+        ],
+    })
+    body = client.get("/api/games/2026-08-02:PHX@LAS/history").get_json()
+    assert body["opening"]["spread"] == -6.5
+    assert len(body["snapshots"]) == 2
+
+
+def test_history_unknown_game_404(client, monkeypatch):
+    monkeypatch.setattr(web, "fetch_line_history", lambda key: None)
+    assert client.get("/api/games/nope/history").status_code == 404
+
+
+def test_history_db_error_503(client, monkeypatch):
+    def boom(key):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(web, "fetch_line_history", boom)
+    assert client.get("/api/games/x/history").status_code == 503
+
+
 def test_index_renders_data(client, monkeypatch):
     monkeypatch.setattr(web, "fetch_team_stats",
                         lambda split: [{"team_name": "Las Vegas Aces",
