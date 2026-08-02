@@ -27,6 +27,7 @@ from typing import Any
 from flask import Flask, jsonify, request
 
 from wnba_pipeline import db
+from wnba_pipeline.enrich import enrich_games
 
 logger = logging.getLogger("wnba_pipeline.web")
 
@@ -94,6 +95,14 @@ def fetch_betting() -> list[dict[str, Any]]:
     )
 
 
+def fetch_stats_by_team(split: str = "last7") -> dict[str, dict[str, Any]]:
+    """team_id -> stats row, for Model v0 inputs and W-L records."""
+    return {str(r["team_id"]): r for r in _rows(
+        "SELECT team_id, team_name, wins, losses, possessions, offensive_rating, points "
+        "FROM team_stats WHERE split = %s", (split,),
+    )}
+
+
 # --------------------------------------------------------------------------- #
 # JSON API
 # --------------------------------------------------------------------------- #
@@ -118,7 +127,8 @@ def api_team_stats():
 @app.get("/api/betting")
 def api_betting():
     try:
-        return jsonify({"games": fetch_betting()})
+        games = enrich_games(fetch_betting(), fetch_stats_by_team("last7"))
+        return jsonify({"games": games})
     except Exception as exc:  # noqa: BLE001
         logger.warning("betting query failed: %s", exc)
         return jsonify({"error": "data temporarily unavailable"}), 503

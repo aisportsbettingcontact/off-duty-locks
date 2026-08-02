@@ -52,9 +52,28 @@ def test_api_team_stats_db_error_is_503(client, monkeypatch):
 def test_api_betting_ok(client, monkeypatch):
     monkeypatch.setattr(web, "fetch_betting",
                         lambda: [{"game_key": "2026-07-22:PHX@LA", "current_spread": 1.5}])
+    monkeypatch.setattr(web, "fetch_stats_by_team", lambda split="last7": {})
     r = client.get("/api/betting")
     assert r.status_code == 200
     assert r.get_json()["games"][0]["game_key"] == "2026-07-22:PHX@LA"
+
+
+def test_api_betting_is_enriched(client, monkeypatch):
+    monkeypatch.setattr(web, "fetch_betting", lambda: [{
+        "game_key": "2026-08-02:PHX@LAS",
+        "away_team_id": "a", "home_team_id": "h",
+        "current_spread": 6.0, "current_total": 170.0,
+        "spread_pct_bets_away": 72, "spread_pct_money_away": 81,
+    }])
+    monkeypatch.setattr(web, "fetch_stats_by_team", lambda split="last7": {
+        "a": {"offensive_rating": 104.0, "possessions": 80.0},
+        "h": {"offensive_rating": 110.0, "possessions": 84.0},
+    })
+    body = client.get("/api/betting").get_json()
+    game = body["games"][0]
+    assert game["spread_pct_bets_home"] == 28
+    assert game["model"]["edge_spread"] is not None
+    assert isinstance(game["signals"], list)
 
 
 def test_index_renders_data(client, monkeypatch):
