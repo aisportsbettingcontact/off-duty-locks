@@ -195,6 +195,19 @@ def _ring_class(score: float) -> str:
     return "cool"
 
 
+# ESPN CDN slugs for team logos (browser-side hotlink; not a pipeline request).
+ESPN_LOGO_SLUGS = {
+    "ATL": "atl", "CHI": "chi", "CONN": "conn", "DAL": "dal", "GS": "gs",
+    "IND": "ind", "LA": "la", "LVA": "lv", "MIN": "min", "NY": "ny",
+    "PHX": "phx", "POR": "por", "SEA": "sea", "TOR": "tor", "WAS": "wsh",
+}
+
+
+def _logo_url(abbr: Any) -> str | None:
+    slug = ESPN_LOGO_SLUGS.get(str(abbr or "").upper())
+    return f"https://a.espncdn.com/i/teamlogos/wnba/500/{slug}.png" if slug else None
+
+
 @app.get("/")
 def index():
     """The research dashboard (design spec 2026-08-02; brand law MASTER.md)."""
@@ -209,17 +222,12 @@ def index():
     except Exception as exc:  # noqa: BLE001 - render an empty state, not a 500
         logger.warning("dashboard queries failed: %s", exc)
         db_ok = False
-    for g in games:
-        away = stats.get(str(g.get("away_team_id")))
-        home = stats.get(str(g.get("home_team_id")))
-        g["away_record"] = f"{away['wins']}-{away['losses']}" if away and away.get("wins") is not None else ""
-        g["home_record"] = f"{home['wins']}-{home['losses']}" if home and home.get("wins") is not None else ""
     updated = max((str(g.get("fetched_at_utc") or "") for g in games), default="")
     return render_template(
         "dashboard.html",
         games=games, rankings=rankings, db_ok=db_ok,
         updated_at=updated, home_court=HOME_COURT_POINTS,
-        fmt=_dfmt, pct=_dpct, ml=_dml, ring_class=_ring_class,
+        fmt=_dfmt, pct=_dpct, ml=_dml, ring_class=_ring_class, logo=_logo_url,
     )
 
 

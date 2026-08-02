@@ -178,7 +178,9 @@ def test_dashboard_renders_games_and_rankings(client, monkeypatch):
     assert "PHX" in html and "LAS" in html
     assert "Offensive Power Rankings" in html
     assert "Aces" in html
-    assert "11-12" in html  # away record joined from team stats
+    assert "a.espncdn.com/i/teamlogos/wnba/500/phx.png" in html
+    assert "Mercury" in html
+    assert "data-iso=" in html
 
 
 def test_dashboard_db_error_still_200(client, monkeypatch):

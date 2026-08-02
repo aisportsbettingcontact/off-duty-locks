@@ -145,3 +145,20 @@ document.querySelectorAll(".rank-tabs button").forEach(btn =>
 
 const m = window.location.hash.match(/game=([^&]+)/);
 if (m) openGame(decodeURIComponent(m[1]));
+
+function renderUpdated() {
+  const el = document.getElementById("updated");
+  if (!el) return;
+  const iso = el.dataset.iso;
+  if (!iso) return;
+  const parsed = Date.parse(iso);
+  if (Number.isNaN(parsed)) return;
+  const mins = Math.max(0, Math.round((Date.now() - parsed) / 60000));
+  el.textContent = mins < 1 ? "Updated just now" : `Updated ${mins} min ago`;
+}
+
+renderUpdated();
+setInterval(renderUpdated, 60 * 1000);
+
+// Data republishes on a 30-minute scrape cadence; a full reload is the honest refresh.
+setInterval(() => location.reload(), 30 * 60 * 1000);
