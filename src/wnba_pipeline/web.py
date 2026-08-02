@@ -223,6 +223,22 @@ def _logo_url(abbr: Any) -> str | None:
     return f"https://a.espncdn.com/i/teamlogos/wnba/500/{slug}.png" if slug else None
 
 
+def _split_team_name(full_name: Any, nickname: Any) -> tuple[str, str]:
+    """(city, nickname) for display: 'Las Vegas Aces' -> ('Las Vegas', 'Aces').
+
+    The betting feed carries nicknames; team_stats carries full names. Prefer
+    stripping the known nickname off the full name; fall back to a last-word
+    split, then to whichever name exists alone."""
+    full = str(full_name or "").strip()
+    nick = str(nickname or "").strip()
+    if full:
+        if nick and full.lower().endswith(nick.lower()) and len(full) > len(nick):
+            return full[: -len(nick)].strip(), full[-len(nick):]
+        city, _, last = full.rpartition(" ")
+        return (city, last) if city else ("", full)
+    return "", nick
+
+
 @app.get("/")
 def index():
     """The research dashboard (design spec 2026-08-02; brand law MASTER.md)."""
@@ -237,6 +253,11 @@ def index():
     except Exception as exc:  # noqa: BLE001 - render an empty state, not a 500
         logger.warning("dashboard queries failed: %s", exc)
         db_ok = False
+    for g in games:
+        for side in ("away", "home"):
+            row = stats.get(str(g.get(f"{side}_team_id"))) or {}
+            city, nick = _split_team_name(row.get("team_name"), g.get(f"{side}_name"))
+            g[f"{side}_city"], g[f"{side}_nick"] = city, nick
     updated = max((str(g.get("fetched_at_utc") or "") for g in games), default="")
     return render_template(
         "dashboard.html",

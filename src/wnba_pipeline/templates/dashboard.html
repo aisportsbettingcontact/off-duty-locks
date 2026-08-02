@@ -47,14 +47,12 @@
       </thead>
       <tbody>
         {% for game in games %}
-        <tr data-game-key="{{ game.game_key }}" tabindex="0" aria-label="Open line history for {{ game.away_abbr or game.away_name }} at {{ game.home_abbr or game.home_name }}">
+        <tr data-game-key="{{ game.game_key }}" tabindex="0" aria-label="Open line history for {{ game.away_name or game.away_abbr }} at {{ game.home_name or game.home_abbr }}">
           <td class="teams">
             {% set away_logo = logo(game.away_abbr) %}{% if away_logo %}<img class="logo" src="{{ away_logo }}" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}
-            <span class="abbr">{{ game.away_abbr or "—" }}</span>
-            <span class="tname">{{ game.away_name or "" }}</span>
+            {% if game.away_city %}<span class="tcity">{{ game.away_city }}</span> {% endif %}<span class="tnick">{{ game.away_nick or "—" }}</span>
             <span class="at">@</span>
-            <span class="abbr">{{ game.home_abbr or "—" }}</span>
-            <span class="tname">{{ game.home_name or "" }}</span>
+            {% if game.home_city %}<span class="tcity">{{ game.home_city }}</span> {% endif %}<span class="tnick">{{ game.home_nick or "—" }}</span>
             {% set home_logo = logo(game.home_abbr) %}{% if home_logo %}<img class="logo" src="{{ home_logo }}" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}
           </td>
           <td>{{ sfmt(game.open_spread) }} · <strong>{{ sfmt(game.current_spread) }}</strong> · {{ sfmt(game.sharp_spread) }}</td>
