@@ -1,0 +1,7 @@
+{
+  "$comment": "Canonical QM skill-pack configuration for this repository (docs/qm-harness.md). QM admins import the repo URL with exactly this config; qa/qm_pack_verify.py validates the corpus against it — using QM's own glob semantics (patterns match the skill DIRECTORY, not the SKILL.md path; ported from qm src/skills/ingest.ts planIngest) — inside qa/pi_harness_audit.py and CI.",
+  "url": "https://github.com/aisportsbettingcontact/off-duty-locks",
+  "config": {
+    "skillGlobs": [".pi/skills/**"]
+  }
+}

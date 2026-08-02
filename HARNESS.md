@@ -9,6 +9,7 @@ Every way an agent executes against this repo. Deep pi runbook:
 | pi (interactive) | global `@earendil-works/pi-coding-agent` | `AGENTS.md` (first match wins — not CLAUDE.md), `.pi/skills/` + packages, `.pi/prompts/` as `/` templates, `.pi/APPEND_SYSTEM.md` | `.pi/settings.json`, `.pi/extensions/odl-guard.ts`, `~/.pi/agent/trust.json` |
 | pi (headless) | `pi -p` / `--mode json` / `--mode rpc` | same, with `-a`/`--approve` for project trust | same |
 | Codex | OpenAI Codex CLI/cloud | `AGENTS.md` (native), `CODEX.md` | model `gpt-5.6-sol` per LLM.md |
+| QM (org layer) | yc-software/qm core driving pi/Claude Code/OpenCode/Codex in scope sandboxes | pack-imported `.pi/skills/` corpus; in-sandbox: repo clone + full pi wiring | `qm.pack.json` (pack contract), `docs/qm-harness.md` (runbook) |
 
 ## Entry points (no package.json — invoke pi directly)
 

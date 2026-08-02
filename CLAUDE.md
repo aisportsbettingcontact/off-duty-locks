@@ -12,6 +12,8 @@ Claude Code-specific pointers only.
 | Skill inventory | `SKILLS.md` |
 | Brand law (all UI work) | `design-system/off-duty-locks/MASTER.md` |
 | pi runbook | `docs/pi-harness.md` |
+| QM integration (pack + sandbox seams) | `docs/qm-harness.md` |
+| QM pack contract | `qm.pack.json` (verified by `qa/qm_pack_verify.py`) |
 | Pipeline runbook / triage | `docs/runbook.md` |
 | Acceptance gates | `qa/acceptance-gates.md` |
 

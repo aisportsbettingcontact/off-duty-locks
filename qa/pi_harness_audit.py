@@ -34,6 +34,20 @@ FRONTMATTER_RE = re.compile(
 )
 
 
+def _qm_pack_errors(root: Path) -> list[str]:
+    """Run the QM pack verifier (qa/qm_pack_verify.py, loaded from this
+    module's own directory so tmp-path trees are checked with real code)."""
+    import importlib.util
+
+    verifier_path = Path(__file__).resolve().parent / "qm_pack_verify.py"
+    if not verifier_path.is_file():
+        return ["qm-pack: missing qa/qm_pack_verify.py"]
+    spec = importlib.util.spec_from_file_location("qm_pack_verify", verifier_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return [f"qm-pack: {err}" for err in module.audit(root)]
+
+
 def audit(root: Path) -> list[str]:
     errors: list[str] = []
     pi = root / ".pi"
@@ -104,6 +118,8 @@ def audit(root: Path) -> list[str]:
         r"^\.pi\s*$", dockerignore.read_text(), re.MULTILINE
     ):
         errors.append(".dockerignore must exclude .pi from the image")
+
+    errors.extend(_qm_pack_errors(root))
 
     return errors
 

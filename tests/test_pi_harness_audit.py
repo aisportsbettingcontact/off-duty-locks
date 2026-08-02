@@ -46,6 +46,10 @@ def _write_minimal_harness(root: Path) -> None:
     (root / "docs" / "pi-harness.md").write_text("# runbook\n")
     (root / ".gitignore").write_text(".pi/npm/\n.pi/git/\n")
     (root / ".dockerignore").write_text(".pi\ndesign-system\nAGENTS.md\n")
+    (root / "qm.pack.json").write_text(json.dumps({
+        "url": "https://github.com/aisportsbettingcontact/off-duty-locks",
+        "config": {"skillGlobs": ["skills/**", ".pi/skills/**"]},
+    }))
 
 
 def test_real_repo_harness_passes():
@@ -96,3 +100,14 @@ def test_gitignore_must_cover_pi_git(tmp_path):
     (tmp_path / ".gitignore").write_text("# nothing\n")
     errors = pi_harness_audit.audit(tmp_path)
     assert any(".pi/git/" in e for e in errors)
+
+
+def test_audit_includes_qm_pack_layer(tmp_path):
+    _write_minimal_harness(tmp_path)
+    # Break the pack: select nothing -> qm layer must surface the failure.
+    (tmp_path / "qm.pack.json").write_text(json.dumps({
+        "url": "https://github.com/aisportsbettingcontact/off-duty-locks",
+        "config": {"skillGlobs": ["nonexistent/**"]},
+    }))
+    errors = pi_harness_audit.audit(tmp_path)
+    assert any(e.startswith("qm-pack: ") for e in errors)

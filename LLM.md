@@ -32,3 +32,8 @@ script, or scheduled job may call a model. The harness audit
 (`qa/pi_harness_audit.py`) is structural only. Do not add a pi-review or any
 LLM-in-CI workflow without explicit owner approval. Before any action that
 would bill an API key, stop — in this repo the answer is "don't".
+
+The prohibition extends to QM (docs/qm-harness.md): never wire any API key
+into QM's keychain, org config, or harness credentials. QM-side model spend
+is a separate, owner-approved decision with its own key — never one
+belonging to this repo or to Dime AI Chat.
