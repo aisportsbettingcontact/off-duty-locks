@@ -147,8 +147,6 @@ def test_dashboard_renders_with_brand_copy(client, monkeypatch):
     html = r.data.decode()
     assert r.status_code == 200
     assert "OFF DUTY" in html and "LOCKS" in html
-    assert "Please wager responsibly." in html
-    assert "1-800-GAMBLER" in html
     assert "MODEL v0" in html
     assert "Signal Legend" in html
 

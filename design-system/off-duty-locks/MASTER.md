@@ -55,9 +55,11 @@ no parallax, no scroll-triggered effects on data surfaces.
 
 ## Standing copy law
 
-Every product surface footer carries:
-"All data provided for informational purposes only. Please wager responsibly."
-Marketing surfaces additionally carry "21+" and "1-800-GAMBLER".
+No mandatory footer copy (owner directive 2026-08-02 removed the
+responsible-gaming footer from product surfaces). If paid marketing or ad
+platforms later require responsible-gaming language ("Please wager
+responsibly.", "21+", "1-800-GAMBLER"), add it to those surfaces only, on
+owner say-so.
 
 ## Terminal theme
 

@@ -24,8 +24,9 @@ Model policy: LLM.md. Skills: SKILLS.md. Brand: design-system/off-duty-locks/MAS
    order first (docs/deployment.md).
 7. **Secrets.** Never commit secrets; never write `.env*` files.
 8. **Brand law.** All UI obeys design-system/off-duty-locks/MASTER.md — one
-   signal-orange accent #FF5C1C, dark graphite surfaces, responsible-gaming
-   copy on every product surface.
+   signal-orange accent #FF5C1C, dark graphite surfaces. (Responsible-gaming
+   footer removed by owner directive 2026-08-02; see MASTER.md standing copy
+   law.)
 9. **QM law.** This repo is a QM skill pack (`qm.pack.json`, verified in CI)
    and its laws bind inside QM scope sandboxes. Never wire any API key into
    QM's keychain, org config, or harness credentials; QM deployment is
