@@ -198,7 +198,7 @@ def _ring_class(score: float) -> str:
 # ESPN CDN slugs for team logos (browser-side hotlink; not a pipeline request).
 ESPN_LOGO_SLUGS = {
     "ATL": "atl", "CHI": "chi", "CONN": "conn", "DAL": "dal", "GS": "gs",
-    "IND": "ind", "LA": "la", "LVA": "lv", "MIN": "min", "NY": "ny",
+    "IND": "ind", "LA": "la", "LAS": "lv", "LVA": "lv", "MIN": "min", "NY": "ny",
     "PHX": "phx", "POR": "por", "SEA": "sea", "TOR": "tor", "WAS": "wsh",
 }
 

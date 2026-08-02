@@ -179,6 +179,7 @@ def test_dashboard_renders_games_and_rankings(client, monkeypatch):
     assert "Offensive Power Rankings" in html
     assert "Aces" in html
     assert "a.espncdn.com/i/teamlogos/wnba/500/phx.png" in html
+    assert "a.espncdn.com/i/teamlogos/wnba/500/lv.png" in html
     assert "Mercury" in html
     assert "data-iso=" in html
 
