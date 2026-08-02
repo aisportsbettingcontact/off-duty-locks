@@ -21,8 +21,8 @@ So this talks to that API directly.
 that owns the domain.
 
 Credentials, in order of preference:
-    RAILWAY_API_TOKEN   account or team token  -> Authorization: Bearer
-    RAILWAY_TOKEN       project token          -> Project-Access-Token
+    RAILWAY_API_TOKEN   account or team token  -> sent as the bearer Authorization header
+    RAILWAY_TOKEN       project token          -> sent as the Project-Access-Token header
 
 Tokens are never printed. Only their presence and kind are reported.
 """
