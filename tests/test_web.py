@@ -178,6 +178,27 @@ def test_dashboard_renders_games_and_rankings(client, monkeypatch):
     assert "PHX" in html and "LAS" in html
     assert "Offensive Power Rankings" in html
     assert "Aces" in html
+    assert "-7.0" in html          # spread stays signed
+    assert "+169.0" not in html    # totals are plain, never signed
+    assert "169.0" in html
+    assert "+110.0" not in html    # ratings are plain, never signed
+
+
+def test_dashboard_partial_game_row_never_crashes(client, monkeypatch):
+    # A row missing most columns must render em-dashes, not raise.
+    monkeypatch.setattr(web, "fetch_betting", lambda: [{
+        "game_key": "k", "game_date": "2026-08-02",
+        "away_abbr": "PHX", "home_abbr": "LVA",
+        "away_name": "Mercury", "home_name": "Aces",
+        "away_team_id": "a", "home_team_id": "h",
+        "current_spread": -6.5,
+    }])
+    monkeypatch.setattr(web, "fetch_stats_by_team", lambda split="last7": {})
+    monkeypatch.setattr(web, "fetch_team_stats", lambda split: [])
+    r = client.get("/")
+    assert r.status_code == 200
+    html = r.data.decode()
+    assert "phx.png" in html and "lv.png" in html
     assert "a.espncdn.com/i/teamlogos/wnba/500/phx.png" in html
     assert "a.espncdn.com/i/teamlogos/wnba/500/lv.png" in html
     assert "Mercury" in html

@@ -169,20 +169,35 @@ def api_game_history(game_key: str):
 # --------------------------------------------------------------------------- #
 
 def _dfmt(value: Any) -> str:
-    """Dashboard number: signed one-decimal for floats, em-dash for None."""
-    if value is None:
+    """Plain dashboard number: one decimal for floats, em-dash for missing.
+
+    Tolerates Jinja Undefined (a partial row never crashes the page)."""
+    if isinstance(value, bool):
         return "—"
     if isinstance(value, float):
-        return f"{value:+.1f}"
-    return str(value)
+        return f"{value:.1f}"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        return value
+    return "—"
+
+
+def _dsigned(value: Any) -> str:
+    """Signed line value (spreads, edges): +/- one decimal."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "—"
+    return f"{value:+.1f}"
 
 
 def _dpct(value: Any) -> str:
-    return "—" if value is None else f"{value}%"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "—"
+    return f"{value}%"
 
 
 def _dml(value: Any) -> str:
-    if value is None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return "—"
     return f"+{value}" if value > 0 else str(value)
 
@@ -227,7 +242,7 @@ def index():
         "dashboard.html",
         games=games, rankings=rankings, db_ok=db_ok,
         updated_at=updated, home_court=HOME_COURT_POINTS,
-        fmt=_dfmt, pct=_dpct, ml=_dml, ring_class=_ring_class, logo=_logo_url,
+        fmt=_dfmt, sfmt=_dsigned, pct=_dpct, ml=_dml, ring_class=_ring_class, logo=_logo_url,
     )
 
 
