@@ -1,15 +1,18 @@
 name: Extract
 
-# Scheduled WNBA last-7-games extraction. Conservative frequency (see
-# docs/compliance.md): one run per day, month-gated to the WNBA season so no
-# polling happens in the offseason. The extractor's own retry/backoff/circuit
-# breaker handle transient upstream issues within a run.
+# Manual-only WNBA last-7-games extraction. The daily cron ("30 10 * 5-10 *",
+# May–October) is PARKED per the docs/compliance.md gate: the robots/ToS review
+# must be recorded and owner-signed BEFORE any schedule exists, and every
+# scheduled run since Jul 21 ended UPSTREAM_UNAVAILABLE anyway — stats.wnba.com
+# (Akamai) blocks datacenter IPs, so a GitHub-hosted runner cannot reach it.
+# Revival plan: a self-hosted residential runner (see docs/deployment.md), and
+# only after the compliance review is signed off. Parking the cron also
+# sidesteps GitHub's 60-day-inactivity auto-disable, which would otherwise
+# silently kill this workflow over the offseason. The extractor's own
+# retry/backoff/circuit breaker still handle transient upstream issues within
+# a manual run.
 
 on:
-  schedule:
-    # 10:30 UTC daily, May–October only. WNBA games finish by ~05:30 UTC, so the
-    # last-7 window is settled. Offseason months never trigger a run.
-    - cron: "30 10 * 5-10 *"
   workflow_dispatch:
     inputs:
       season:
@@ -117,3 +120,13 @@ jobs:
             } else {
               await github.rest.issues.create({owner, repo, title, body, labels: [label]});
             }
+
+      - name: Fail the run on extraction failure
+        # Honest gate (repo law 3): a failed extraction must show a red run,
+        # not a green run plus an issue. 14 straight UPSTREAM_UNAVAILABLE runs
+        # showed green because only the alert step above ever saw the captured
+        # exit code. This step MUST stay after the alert step so both fire.
+        if: ${{ steps.extract.outputs.exit_code != '0' }}
+        run: |
+          echo "::error::extraction exited ${{ steps.extract.outputs.exit_code }} — see the run summary and the pipeline-alert issue."
+          exit 1
