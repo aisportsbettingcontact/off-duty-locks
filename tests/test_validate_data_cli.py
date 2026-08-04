@@ -145,9 +145,12 @@ def _poisoned_team_stats_store():
 # --------------------------------------------------------------------------- #
 
 def test_betting_fresh_hours_flag_parses_with_default():
-    """--betting-fresh-hours exists, is a float, and defaults to 6 hours."""
+    """--betting-fresh-hours exists, is a float, and defaults to the single
+    module-level constant — the CLI default must never drift from run_all's."""
+    from wnba_pipeline import dataquality as dq
+
     args = cli.build_parser().parse_args(["validate-data"])
-    assert args.betting_fresh_hours == 6.0
+    assert args.betting_fresh_hours == dq.DEFAULT_BETTING_FRESH_HOURS == 6.0
     args = cli.build_parser().parse_args(
         ["validate-data", "--betting-fresh-hours", "3"])
     assert args.betting_fresh_hours == 3.0
