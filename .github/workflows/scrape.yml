@@ -1,10 +1,34 @@
 name: Scrape + Publish (DB)
 
-# Publishes the serving tables that offdutylocks.com reads from. This replaces
-# the old Railway betting cron: Railway now only serves the site, and ALL
-# scraping runs here, writing to the same Postgres via the DATABASE_URL secret
-# (set it to the PUBLIC Railway URL — *.proxy.rlwy.net — since the runner is
-# outside Railway's private network).
+# MANUAL BACKUP publish path for the betting slate (workflow_dispatch only).
+#
+# The scheduled 30-minute betting scrape does NOT run here anymore — the
+# `schedule:` trigger is retired (owner-authorized, 2026-08-04). GitHub
+# delivers `schedule` best-effort, and measured gaps between ticks ran 30
+# minutes to 3.5 hours: cadence dilution the line-history snapshots and the
+# dashboard's data-driven refresh cannot absorb (an interim :07/:37 offset off
+# GitHub's congested marks did not change the guarantee — still best-effort).
+# The scheduler is now a dedicated Railway cron service with the EXPLICIT file
+# `railway.scrape.json` (cron `*/30 * * * *`, startCommand
+# `wnba-pipeline betting-cron`, restartPolicyType NEVER), running on Railway's
+# private network next to Postgres. One scheduler by design: two would
+# double-write the same rows (the COALESCE upsert makes the race benign, not
+# desirable).
+#
+# Why an explicit config file and NOT railway.toml: the ORIGINAL Railway
+# betting cron (pre-ab09843, 2026-07-29) died because railway.toml's DEFAULT
+# start command launched the cron, the web service inherited it, nothing bound
+# $PORT, and the whole site 502'd. The fix made railway.toml fail-safe — the
+# default every service inherits is "serve the site". That asymmetry is law:
+# a service that forgets its config override must end up serving the site
+# (harmless), never running a cron. The cron service is therefore explicitly
+# pinned to railway.scrape.json in its service settings; railway.toml stays
+# untouched.
+#
+# This workflow remains the manual backup when Railway is down or a
+# publish must be forced immediately. It runs OUTSIDE Railway's private
+# network, so DATABASE_URL must be the PUBLIC proxy URL (*.proxy.rlwy.net) —
+# the guard below enforces that.
 #
 #   - betting: VSIN + Action Network are datacenter-reachable, so the live
 #     betting slate publishes fine from a GitHub-hosted runner.
@@ -14,16 +38,6 @@ name: Scrape + Publish (DB)
 #     (workflow_dispatch) so the table stays populated. See docs/deployment.md.
 
 on:
-  schedule:
-    # Twice hourly at :07/:37, season months only (May–Oct). The intended
-    # cadence is unchanged from */30 (every 30 minutes); the offsets sit OFF
-    # GitHub's congested :00/:30 marks, where deliveries observed on
-    # 2026-08-04 arrived 30 minutes to 3.5 hours late. Delivery is still
-    # best-effort — expect a run roughly every 30–90 minutes, not on the tick.
-    # Owner directive 2026-08-02: continuous coverage so the line-history
-    # snapshots and the dashboard's data-driven refresh always have fresh data.
-    # These runs hit VSIN + Action Network only — never stats.wnba.com.
-    - cron: "7,37 * * 5-10 *"
   workflow_dispatch:
     inputs:
       seed_team_stats:
@@ -32,7 +46,7 @@ on:
         required: false
         default: false
 
-# Never let a slow run overlap the next tick (both write the same rows).
+# Never let two dispatched runs overlap (both write the same rows).
 concurrency:
   group: wnba-scrape-publish
   cancel-in-progress: false

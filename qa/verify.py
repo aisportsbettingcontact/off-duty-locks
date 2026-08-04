@@ -297,6 +297,56 @@ def section_automation(repo: Path, rep: Report) -> None:
             problems.append("data-audit.yml: audit_month_gated_cron not satisfied")
     else:
         problems.append("data-audit.yml missing")
+    # 2026-08-04 (owner-authorized): the scheduled betting scrape moved OFF
+    # Actions — GitHub delivers `schedule` best-effort and the measured gaps
+    # ran 30min–3.5h — onto a dedicated Railway cron service pinned to
+    # railway.scrape.json. scrape.yml is now the manual backup ONLY:
+    # dispatch-driven with NO schedule trigger (a resurrected cron here would
+    # mean two schedulers double-writing the same rows), still carrying the
+    # kill switch and the public-proxy DATABASE_URL guard the runner needs.
+    scrape = wf / "scrape.yml"
+    if scrape.exists():
+        t = scrape.read_text()
+        checks["scrape_dispatch_only"] = (
+            "workflow_dispatch" in t
+            and re.search(r"(?m)^\s*schedule:\s*$", t) is None)
+        checks["scrape_disable_switch"] = "PIPELINE_ENABLED" in t
+        checks["scrape_public_proxy_guard"] = "railway.internal" in t
+        for k in ("scrape_dispatch_only", "scrape_disable_switch",
+                  "scrape_public_proxy_guard"):
+            if not checks[k]:
+                problems.append(f"scrape.yml: {k} not satisfied")
+    else:
+        problems.append("scrape.yml missing")
+    # The Railway cron service's explicit config: exact 30-minute ticks, the
+    # single-command entry (season gate lives IN the code, so the schedule is
+    # year-round on purpose), a process that must exit, NEVER a restart loop,
+    # and no healthcheck (cron containers serve nothing).
+    rw_scrape = repo / "railway.scrape.json"
+    if rw_scrape.exists():
+        try:
+            deploy = json.loads(rw_scrape.read_text()).get("deploy", {})
+            checks["railway_cron_config"] = (
+                deploy.get("cronSchedule") == "*/30 * * * *"
+                and "betting-cron" in deploy.get("startCommand", "")
+                and deploy.get("restartPolicyType") == "NEVER"
+                and "healthcheckPath" not in deploy)
+        except json.JSONDecodeError:
+            checks["railway_cron_config"] = False
+        if not checks["railway_cron_config"]:
+            problems.append("railway.scrape.json: railway_cron_config not satisfied")
+    else:
+        problems.append("railway.scrape.json missing")
+    # The ab09843 fail-safe asymmetry: railway.toml is the DEFAULT config every
+    # Railway service inherits, so its start command must serve the site —
+    # never run a cron. (The original Railway betting cron in the default
+    # config 502'd the whole site.)
+    rw_toml = repo / "railway.toml"
+    toml_text = rw_toml.read_text() if rw_toml.exists() else ""
+    checks["railway_default_serves_site"] = ("gunicorn" in toml_text
+                                             and "betting-cron" not in toml_text)
+    if not checks["railway_default_serves_site"]:
+        problems.append("railway.toml: default start command must serve the site")
     if live.exists():
         t = live.read_text()
         checks["live_dispatch_only"] = ("workflow_dispatch" in t

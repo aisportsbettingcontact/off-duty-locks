@@ -483,6 +483,79 @@ def _cmd_betting(args: argparse.Namespace) -> int:
     return int(summary["exitCode"])
 
 
+# Months (UTC) in which the betting slate exists: May (5) – October (10).
+# The Railway schedule expression is deliberately year-round; this gate is the
+# single, testable place the season boundary lives.
+BETTING_SEASON_MONTHS = range(5, 11)
+
+
+def _cmd_betting_cron(
+    args: argparse.Namespace,
+    *,
+    now_fn=None,
+    environ=None,
+    betting_fn=None,
+    validate_fn=None,
+) -> int:
+    """One Railway cron tick: kill switch -> season gate -> publish -> gate.
+
+    Railway starts the container at every ``*/30 * * * *`` tick year-round
+    (railway.scrape.json) and records ONE exit code per run, so this command
+    composes what scrape.yml ran as separate workflow steps:
+
+    1. **Kill switch** — ``PIPELINE_ENABLED=false`` (case-insensitive, like
+       GitHub's ``vars.PIPELINE_ENABLED != 'false'``) logs one JSON line and
+       exits 0. Pausing on Railway works exactly like pausing Actions.
+    2. **Season gate** — outside May–October **UTC** it logs one
+       ``offseason_skip`` JSON line and exits 0 without touching the network
+       or the database. The gate lives in code, not in the cron expression,
+       so nobody has to edit the schedule twice a year.
+    3. **In season** — run the betting publish (`wnba-pipeline betting`) and
+       then the betting-scope ``validate-data`` audit. The validate gate runs
+       even when the publish failed (mirroring scrape.yml) so every tick's
+       log answers both questions; the exit code is the publish's failure if
+       it failed, else the validate's — nonzero if either failed, 0 only when
+       both passed.
+
+    The keyword seams (clock, environment, sub-commands) exist for the tests;
+    production always uses the defaults.
+    """
+    now_fn = now_fn or (lambda: datetime.now(timezone.utc))
+    environ = os.environ if environ is None else environ
+    betting_fn = betting_fn or _cmd_betting
+    validate_fn = validate_fn or _cmd_validate_data
+
+    if environ.get("PIPELINE_ENABLED", "").strip().lower() == "false":
+        print(json.dumps({
+            "event": "pipeline_disabled",
+            "reason": "PIPELINE_ENABLED=false",
+            "exitCode": EXIT_OK,
+        }), flush=True)
+        return EXIT_OK
+
+    now = now_fn().astimezone(timezone.utc)
+    if now.month not in BETTING_SEASON_MONTHS:
+        print(json.dumps({
+            "event": "offseason_skip",
+            "month": now.month,
+            "seasonMonths": "5-10",
+            "nowUtc": now.strftime(_ISO_Z),
+            "exitCode": EXIT_OK,
+        }), flush=True)
+        return EXIT_OK
+
+    betting_code = betting_fn(args)
+    validate_code = validate_fn(args)
+    exit_code = betting_code if betting_code != EXIT_OK else validate_code
+    print(json.dumps({
+        "event": "betting_cron_finished",
+        "bettingExit": betting_code,
+        "validateExit": validate_code,
+        "exitCode": exit_code,
+    }), flush=True)
+    return exit_code
+
+
 def _cmd_serve(args: argparse.Namespace) -> int:
     """Run the read-only web app locally (production uses gunicorn — see
     railway.web.json). Binds the given host/port; defaults to $PORT or 3000."""
@@ -673,6 +746,28 @@ def build_parser() -> argparse.ArgumentParser:
     bet_p.add_argument("--database-url", default=None,
                        help="Postgres connection string (default: $DATABASE_URL)")
     bet_p.set_defaults(func=_cmd_betting, publish=True)
+
+    # betting-cron: the one command a Railway cron tick runs (see
+    # railway.scrape.json) — kill switch + in-code season gate, then the
+    # betting publish and the betting-scope validate gate composed into a
+    # single exit code for Railway's run history.
+    cron_p = sub.add_parser(
+        "betting-cron",
+        help="one Railway cron tick: season gate, betting publish, then the "
+             "betting-scope validate gate (single exit code)",
+    )
+    cron_p.add_argument("--database-url", default=None,
+                        help="Postgres connection string (default: $DATABASE_URL)")
+    cron_p.add_argument("--season", default=ExtractionParams().season,
+                        help="season whose expected team set to validate against")
+    cron_p.add_argument("--betting-fresh-hours", type=float,
+                        default=DEFAULT_BETTING_FRESH_HOURS,
+                        dest="betting_fresh_hours",
+                        help="freshness gate passed through to validate-data "
+                             f"(default: {DEFAULT_BETTING_FRESH_HOURS:g})")
+    cron_p.set_defaults(func=_cmd_betting_cron, publish=True, date=None,
+                        last_split="last7", scope="betting", as_json=False,
+                        warn_is_failure=False)
 
     # serve: read-only web app for local dev (production uses gunicorn).
     serve_p = sub.add_parser("serve", help="run the read-only web app (local dev)")
