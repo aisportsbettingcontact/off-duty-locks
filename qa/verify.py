@@ -307,9 +307,12 @@ def section_automation(repo: Path, rep: Report) -> None:
     scrape = wf / "scrape.yml"
     if scrape.exists():
         t = scrape.read_text()
+        # Any `schedule:` key counts as a resurrected cron — block style,
+        # flow style (`schedule: [{cron: ...}]`), or one with a trailing
+        # comment. Comment lines start with '#' so they can never match.
         checks["scrape_dispatch_only"] = (
             "workflow_dispatch" in t
-            and re.search(r"(?m)^\s*schedule:\s*$", t) is None)
+            and re.search(r"(?m)^\s*schedule:", t) is None)
         checks["scrape_disable_switch"] = "PIPELINE_ENABLED" in t
         checks["scrape_public_proxy_guard"] = "railway.internal" in t
         for k in ("scrape_dispatch_only", "scrape_disable_switch",
