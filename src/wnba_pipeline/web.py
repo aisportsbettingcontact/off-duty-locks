@@ -27,7 +27,7 @@ from typing import Any
 from flask import Flask, jsonify, render_template, request
 
 from wnba_pipeline import db
-from wnba_pipeline.enrich import enrich_games
+from wnba_pipeline.enrich import enrich_games, find_team_stats, stats_by_team_name
 from wnba_pipeline.model import HOME_COURT_POINTS
 
 logger = logging.getLogger("wnba_pipeline.web")
@@ -272,9 +272,14 @@ def index():
     except Exception as exc:  # noqa: BLE001 - render an empty state, not a 500
         logger.warning("dashboard queries failed: %s", exc)
         db_ok = False
+    # Same id-first / name-fallback join as enrich_games: betting rows carry
+    # AN team ids, team_stats carries stats.wnba.com ids (see enrich.py).
+    stats_names = stats_by_team_name(stats)
     for g in games:
         for side in ("away", "home"):
-            row = stats.get(str(g.get(f"{side}_team_id"))) or {}
+            row = find_team_stats(
+                stats, stats_names, g.get(f"{side}_team_id"), g.get(f"{side}_name")
+            ) or {}
             city, nick = _split_team_name(row.get("team_name"), g.get(f"{side}_name"))
             g[f"{side}_city"], g[f"{side}_nick"] = city, nick
     updated = max((str(g.get("fetched_at_utc") or "") for g in games), default="")
