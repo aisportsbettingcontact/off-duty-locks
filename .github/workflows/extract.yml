@@ -102,8 +102,9 @@ jobs:
         id: validate
         run: |
           set -uo pipefail
+          SEASON="${{ github.event.inputs.season || '2026' }}"
           set +e
-          wnba-pipeline validate-data --season 2026
+          wnba-pipeline validate-data --season "$SEASON"
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
           set -e
 
@@ -117,7 +118,7 @@ jobs:
             echo "## Data validation"
             echo ""
             echo '```'
-            wnba-pipeline validate-data --season 2026 2>&1 || true
+            wnba-pipeline validate-data --season "${{ github.event.inputs.season || '2026' }}" 2>&1 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -129,8 +130,11 @@ jobs:
           path: manifest.json
           retention-days: 30
 
+      # failure() covers hard failures BEFORE the extract step (checkout, pip
+      # hash breakage, missing secret, db-init) — without it GitHub implies
+      # success() and an infra-red run would file no alert at all.
       - name: Alert on failure
-        if: ${{ steps.extract.outputs.exit_code != '0' || steps.validate.outputs.exit_code != '0' }}
+        if: ${{ failure() || steps.extract.outputs.exit_code != '0' || steps.validate.outputs.exit_code != '0' }}
         uses: actions/github-script@v7
         with:
           script: |
