@@ -72,6 +72,22 @@ BETTING_GAMES_COLUMNS: tuple[str, ...] = (
     "public_book", "sharp_book", "an_game_id", "vsin_game_id", "fetched_at_utc",
 )
 
+# The VSIN-derived columns. merge.py leaves every one of these None when the
+# VSIN lookup misses a game, and betting/runner.py deliberately tolerates VSIN
+# outages (Action Network is the backbone, exit stays 0) — so a plain EXCLUDED
+# update would let one VSIN outage silently NULL-overwrite the whole slate's
+# splits and sharp lines. These upsert via COALESCE: NULL keeps the last known
+# value, a real revised value still overwrites. AN-derived columns (lines,
+# moneylines, names, meta, fetched_at_utc) stay plain EXCLUDED — when Action
+# Network answers, its values are authoritative.
+VSIN_PRESERVE_COLUMNS: tuple[str, ...] = (
+    "spread_pct_bets_away", "spread_pct_money_away",
+    "total_pct_bets_over", "total_pct_money_over",
+    "ml_pct_bets_away", "ml_pct_money_away",
+    "sharp_spread", "sharp_total", "sharp_ml_away", "sharp_ml_home",
+    "sharp_book", "spread_rlm", "total_rlm", "ml_rlm",
+)
+
 
 def split_label(last_n_games: int) -> str:
     """DB split label for a LastNGames window. 0 = full season = 'ytd'."""
@@ -168,14 +184,22 @@ def snapshot_insert_sql() -> str:
     )
 
 
-def upsert_sql(table: str, columns: list[str], pk: tuple[str, ...]) -> str:
+def upsert_sql(table: str, columns: list[str], pk: tuple[str, ...],
+               preserve_on_null: tuple[str, ...] = ()) -> str:
     """Parameterized ``INSERT ... ON CONFLICT (pk) DO UPDATE`` statement.
 
-    ``updated_at`` is always refreshed to ``now()`` on conflict.
+    ``updated_at`` is always refreshed to ``now()`` on conflict. Columns named
+    in ``preserve_on_null`` update via ``COALESCE(EXCLUDED.col, table.col)``:
+    an incoming NULL keeps the stored value instead of erasing it, while a
+    real value still overwrites (see ``VSIN_PRESERVE_COLUMNS`` for why).
     """
     col_list = ", ".join(columns)
     placeholders = ", ".join(["%s"] * len(columns))
-    updates = [f"{c} = EXCLUDED.{c}" for c in columns if c not in pk]
+    updates = [
+        f"{c} = COALESCE(EXCLUDED.{c}, {table}.{c})" if c in preserve_on_null
+        else f"{c} = EXCLUDED.{c}"
+        for c in columns if c not in pk
+    ]
     updates.append("updated_at = now()")
     return (
         f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})\n"
@@ -281,7 +305,8 @@ class BettingPublisher:
         if not rows:
             return 0
         columns = list(BETTING_GAMES_COLUMNS)
-        sql = upsert_sql("betting_games", columns, BETTING_GAMES_PK)
+        sql = upsert_sql("betting_games", columns, BETTING_GAMES_PK,
+                         preserve_on_null=VSIN_PRESERVE_COLUMNS)
         params = [tuple(row[c] for c in columns) for row in rows]
         snap_params = [
             tuple(row[c] for c in SNAPSHOT_COLUMNS) for row in snapshot_rows(games)
