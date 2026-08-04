@@ -356,32 +356,39 @@ def _render_page(last7, ytd, betting, db_ok: bool) -> str:
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Off-Duty Locks — WNBA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
 <style>
-  :root {{ color-scheme: dark; }}
+  /* Brand law: design-system/off-duty-locks/MASTER.md — one accent #FF5C1C,
+     graphite surfaces, Barlow Condensed display + Inter tabular data grids. */
+  :root {{ color-scheme: dark;
+    --odl-bg:#0B0B0D; --odl-panel:#141417; --odl-border:#26262B;
+    --odl-text:#E7E7EA; --odl-text-muted:#9CA3AF;
+    --odl-accent:#FF5C1C; --odl-signal-warn:#EF4444; }}
   * {{ box-sizing: border-box; }}
-  body {{ margin:0; background:#0d1117; color:#e6edf3; font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }}
-  header {{ padding:24px 20px; border-bottom:1px solid #21262d; background:#0b0f14; }}
-  h1 {{ margin:0; font-size:22px; letter-spacing:.2px; }}
-  header .sub {{ color:#8b949e; margin-top:4px; }}
+  body {{ margin:0; background:var(--odl-bg); color:var(--odl-text); font:14px/1.5 Inter,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }}
+  header {{ padding:24px 20px; border-bottom:1px solid var(--odl-border); background:var(--odl-panel); }}
+  h1 {{ margin:0; font:700 26px/1.1 "Barlow Condensed",Inter,sans-serif; text-transform:uppercase; letter-spacing:.03em; }}
+  header .sub {{ color:var(--odl-text-muted); margin-top:4px; }}
   main {{ max-width:1200px; margin:0 auto; padding:20px; }}
   section {{ margin:28px 0; }}
-  h2 {{ font-size:16px; color:#c9d1d9; border-left:3px solid #2f81f7; padding-left:10px; margin:0 0 12px; }}
-  .scroll {{ overflow-x:auto; border:1px solid #21262d; border-radius:8px; }}
+  h2 {{ font:700 18px/1.2 "Barlow Condensed",Inter,sans-serif; text-transform:uppercase; letter-spacing:.03em; color:var(--odl-text); border-left:3px solid var(--odl-accent); padding-left:10px; margin:0 0 12px; }}
+  .scroll {{ overflow-x:auto; border:1px solid var(--odl-border); border-radius:8px; background:var(--odl-panel); }}
   table {{ border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }}
-  th,td {{ padding:8px 10px; text-align:right; white-space:nowrap; border-bottom:1px solid #161b22; }}
-  th {{ background:#161b22; color:#8b949e; font-weight:600; position:sticky; top:0; }}
+  th,td {{ padding:8px 10px; text-align:right; white-space:nowrap; border-bottom:1px solid var(--odl-border); }}
+  th {{ background:var(--odl-panel); color:var(--odl-text-muted); font:700 12px/1.5 "Barlow Condensed",Inter,sans-serif; text-transform:uppercase; letter-spacing:.04em; position:sticky; top:0; }}
   td.team {{ text-align:left; font-weight:600; }}
-  td.team .sub {{ color:#6e7681; font-weight:400; font-size:12px; }}
-  td.hi {{ color:#2f81f7; font-weight:700; }}
-  tbody tr:hover {{ background:#12181f; }}
+  td.team .sub {{ color:var(--odl-text-muted); font-weight:400; font-size:12px; }}
+  td.hi {{ color:var(--odl-accent); font-weight:700; }}
+  tbody tr:hover {{ background:rgba(255,92,28,0.06); }}
   .badge {{ display:inline-block; padding:1px 6px; border-radius:4px; font-size:11px; font-weight:700; }}
-  .badge.rlm {{ background:#3fb95022; color:#3fb950; border:1px solid #3fb95055; margin-left:4px; }}
-  .empty {{ color:#8b949e; font-style:italic; padding:12px; }}
-  .warn {{ color:#f0883e; }}
-  footer {{ color:#6e7681; text-align:center; padding:24px; font-size:12px; }}
+  .badge.rlm {{ background:rgba(255,92,28,0.13); color:var(--odl-accent); border:1px solid rgba(255,92,28,0.33); margin-left:4px; }}
+  .empty {{ color:var(--odl-text-muted); font-style:italic; padding:12px; }}
+  .warn {{ color:var(--odl-signal-warn); }}
+  footer {{ color:var(--odl-text-muted); text-align:center; padding:24px; font-size:12px; }}
   .tabs {{ display:flex; gap:8px; margin-bottom:12px; }}
-  .tabs button {{ background:#161b22; color:#c9d1d9; border:1px solid #21262d; border-radius:6px; padding:6px 14px; cursor:pointer; font:inherit; }}
-  .tabs button.active {{ background:#2f81f7; color:#fff; border-color:#2f81f7; }}
+  .tabs button {{ background:var(--odl-panel); color:var(--odl-text-muted); border:1px solid var(--odl-border); border-radius:6px; padding:6px 14px; cursor:pointer; font:inherit; transition:background 140ms ease-out,color 140ms ease-out,border-color 140ms ease-out; }}
+  .tabs button.active {{ background:var(--odl-accent); color:#0B0B0D; border-color:var(--odl-accent); font-weight:600; }}
   .pane[hidden] {{ display:none; }}
 </style></head>
 <body>
