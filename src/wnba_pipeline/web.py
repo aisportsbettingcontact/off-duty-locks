@@ -121,6 +121,25 @@ def fetch_line_history(game_key: str) -> dict[str, Any] | None:
     return {"game_key": game_key, "opening": opening[0], "snapshots": snapshots}
 
 
+@app.after_request
+def _security_headers(response):
+    """Baseline security headers on every response.
+
+    Railway terminates TLS for the domain, so the site is HTTPS-only already —
+    HSTS (180 days) pins browsers to it. nosniff stops MIME sniffing, and
+    X-Frame-Options + frame-ancestors shut off clickjacking (both forms so old
+    and new browsers each honor one). Deliberately NO broader
+    Content-Security-Policy: the dashboard uses inline script/styles, which a
+    script-src/style-src policy would break.
+    """
+    response.headers["Strict-Transport-Security"] = "max-age=15552000"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
+
 # --------------------------------------------------------------------------- #
 # JSON API
 # --------------------------------------------------------------------------- #
