@@ -1,0 +1,310 @@
+{
+ "_provenance": {
+  "synthetic": false,
+  "capturedAtUtc": "2026-08-04T10:30:00Z",
+  "describedBy": "docs/compliance.md#espn",
+  "sourceUrl": "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/summary?event=401857097",
+  "notes": "Real capture, trimmed to boxscore.teams (team statistics with name/label/displayValue) and the header competition status/competitors. Player boxes, plays, odds, news removed."
+ },
+ "header": {
+  "competitions": [
+   {
+    "id": "401857097",
+    "status": {
+     "type": {
+      "id": "3",
+      "name": "STATUS_FINAL",
+      "state": "post",
+      "completed": true
+     }
+    },
+    "competitors": [
+     {
+      "id": "3",
+      "homeAway": "home",
+      "winner": false,
+      "score": "81"
+     },
+     {
+      "id": "20",
+      "homeAway": "away",
+      "winner": true,
+      "score": "82"
+     }
+    ]
+   }
+  ]
+ },
+ "boxscore": {
+  "teams": [
+   {
+    "team": {
+     "id": "20",
+     "displayName": "Atlanta Dream"
+    },
+    "homeAway": "away",
+    "statistics": [
+     {
+      "name": "fieldGoalsMade-fieldGoalsAttempted",
+      "label": "FG",
+      "displayValue": "31-70"
+     },
+     {
+      "name": "fieldGoalPct",
+      "label": "Field Goal %",
+      "displayValue": "44"
+     },
+     {
+      "name": "threePointFieldGoalsMade-threePointFieldGoalsAttempted",
+      "label": "3PT",
+      "displayValue": "1-16"
+     },
+     {
+      "name": "threePointFieldGoalPct",
+      "label": "Three Point %",
+      "displayValue": "6"
+     },
+     {
+      "name": "freeThrowsMade-freeThrowsAttempted",
+      "label": "FT",
+      "displayValue": "19-25"
+     },
+     {
+      "name": "freeThrowPct",
+      "label": "Free Throw %",
+      "displayValue": "76"
+     },
+     {
+      "name": "totalRebounds",
+      "label": "Rebounds",
+      "displayValue": "37"
+     },
+     {
+      "name": "offensiveRebounds",
+      "label": "Offensive Rebounds",
+      "displayValue": "12"
+     },
+     {
+      "name": "defensiveRebounds",
+      "label": "Defensive Rebounds",
+      "displayValue": "25"
+     },
+     {
+      "name": "assists",
+      "label": "Assists",
+      "displayValue": "22"
+     },
+     {
+      "name": "steals",
+      "label": "Steals",
+      "displayValue": "11"
+     },
+     {
+      "name": "blocks",
+      "label": "Blocks",
+      "displayValue": "4"
+     },
+     {
+      "name": "turnovers",
+      "label": "Turnovers",
+      "displayValue": "15"
+     },
+     {
+      "name": "teamTurnovers",
+      "label": "Team Turnovers",
+      "displayValue": "1"
+     },
+     {
+      "name": "totalTurnovers",
+      "label": "Total Turnovers",
+      "displayValue": "16"
+     },
+     {
+      "name": "technicalFouls",
+      "label": "Technical Fouls",
+      "displayValue": "2"
+     },
+     {
+      "name": "totalTechnicalFouls",
+      "label": "Total Technical Fouls",
+      "displayValue": "2"
+     },
+     {
+      "name": "flagrantFouls",
+      "label": "Flagrant Fouls",
+      "displayValue": "0"
+     },
+     {
+      "name": "turnoverPoints",
+      "label": "Points Conceded Off Turnovers",
+      "displayValue": "22"
+     },
+     {
+      "name": "fastBreakPoints",
+      "label": "Fast Break Points",
+      "displayValue": "4"
+     },
+     {
+      "name": "pointsInPaint",
+      "label": "Points in Paint",
+      "displayValue": "58"
+     },
+     {
+      "name": "fouls",
+      "label": "Fouls",
+      "displayValue": "20"
+     },
+     {
+      "name": "largestLead",
+      "label": "Largest Lead",
+      "displayValue": "2"
+     },
+     {
+      "name": "leadChanges",
+      "label": "Lead Changes",
+      "displayValue": "7"
+     },
+     {
+      "name": "leadPercentage",
+      "label": "Percent Led",
+      "displayValue": "3"
+     }
+    ]
+   },
+   {
+    "team": {
+     "id": "3",
+     "displayName": "Dallas Wings"
+    },
+    "homeAway": "home",
+    "statistics": [
+     {
+      "name": "fieldGoalsMade-fieldGoalsAttempted",
+      "label": "FG",
+      "displayValue": "34-69"
+     },
+     {
+      "name": "fieldGoalPct",
+      "label": "Field Goal %",
+      "displayValue": "49"
+     },
+     {
+      "name": "threePointFieldGoalsMade-threePointFieldGoalsAttempted",
+      "label": "3PT",
+      "displayValue": "4-15"
+     },
+     {
+      "name": "threePointFieldGoalPct",
+      "label": "Three Point %",
+      "displayValue": "27"
+     },
+     {
+      "name": "freeThrowsMade-freeThrowsAttempted",
+      "label": "FT",
+      "displayValue": "9-14"
+     },
+     {
+      "name": "freeThrowPct",
+      "label": "Free Throw %",
+      "displayValue": "64"
+     },
+     {
+      "name": "totalRebounds",
+      "label": "Rebounds",
+      "displayValue": "32"
+     },
+     {
+      "name": "offensiveRebounds",
+      "label": "Offensive Rebounds",
+      "displayValue": "8"
+     },
+     {
+      "name": "defensiveRebounds",
+      "label": "Defensive Rebounds",
+      "displayValue": "24"
+     },
+     {
+      "name": "assists",
+      "label": "Assists",
+      "displayValue": "19"
+     },
+     {
+      "name": "steals",
+      "label": "Steals",
+      "displayValue": "9"
+     },
+     {
+      "name": "blocks",
+      "label": "Blocks",
+      "displayValue": "5"
+     },
+     {
+      "name": "turnovers",
+      "label": "Turnovers",
+      "displayValue": "16"
+     },
+     {
+      "name": "teamTurnovers",
+      "label": "Team Turnovers",
+      "displayValue": "2"
+     },
+     {
+      "name": "totalTurnovers",
+      "label": "Total Turnovers",
+      "displayValue": "18"
+     },
+     {
+      "name": "technicalFouls",
+      "label": "Technical Fouls",
+      "displayValue": "0"
+     },
+     {
+      "name": "totalTechnicalFouls",
+      "label": "Total Technical Fouls",
+      "displayValue": "0"
+     },
+     {
+      "name": "flagrantFouls",
+      "label": "Flagrant Fouls",
+      "displayValue": "1"
+     },
+     {
+      "name": "turnoverPoints",
+      "label": "Points Conceded Off Turnovers",
+      "displayValue": "15"
+     },
+     {
+      "name": "fastBreakPoints",
+      "label": "Fast Break Points",
+      "displayValue": "15"
+     },
+     {
+      "name": "pointsInPaint",
+      "label": "Points in Paint",
+      "displayValue": "40"
+     },
+     {
+      "name": "fouls",
+      "label": "Fouls",
+      "displayValue": "19"
+     },
+     {
+      "name": "largestLead",
+      "label": "Largest Lead",
+      "displayValue": "15"
+     },
+     {
+      "name": "leadChanges",
+      "label": "Lead Changes",
+      "displayValue": "7"
+     },
+     {
+      "name": "leadPercentage",
+      "label": "Percent Led",
+      "displayValue": "88"
+     }
+    ]
+   }
+  ]
+ }
+}

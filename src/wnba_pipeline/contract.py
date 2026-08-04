@@ -205,6 +205,11 @@ class RawFetchResult:
     request_count: int
     retry_count: int
     source_observed_at_utc: str | None = None   # from response Date header, if any
+    # Which upstream produced this fetch. Defaults to the historical source so
+    # every existing constructor stays valid; the ESPN extractor overrides it,
+    # and validation stamps it onto the snapshot — provenance must never claim
+    # stats.wnba.com for ESPN-derived data.
+    source: str = SOURCE
 
 
 @dataclass

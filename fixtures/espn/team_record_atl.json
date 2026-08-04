@@ -1,0 +1,159 @@
+{
+ "_provenance": {
+  "synthetic": false,
+  "capturedAtUtc": "2026-08-04T10:30:00Z",
+  "describedBy": "docs/compliance.md#espn",
+  "sourceUrl": "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/20",
+  "notes": "Real capture, trimmed to team id/displayName/abbreviation and the record items (stats kept with name/value)."
+ },
+ "team": {
+  "id": "20",
+  "displayName": "Atlanta Dream",
+  "abbreviation": "ATL",
+  "record": {
+   "items": [
+    {
+     "type": "total",
+     "description": "Overall Record",
+     "summary": "18-11",
+     "stats": [
+      {
+       "name": "OTLosses",
+       "value": 0.0
+      },
+      {
+       "name": "OTWins",
+       "value": 0.0
+      },
+      {
+       "name": "avgPointsAgainst",
+       "value": 86.06896
+      },
+      {
+       "name": "avgPointsFor",
+       "value": 89.31035
+      },
+      {
+       "name": "differential",
+       "value": 3.200000000000003
+      },
+      {
+       "name": "divisionWinPercent",
+       "value": 0.0
+      },
+      {
+       "name": "gamesBehind",
+       "value": 0.5
+      },
+      {
+       "name": "gamesPlayed",
+       "value": 29.0
+      },
+      {
+       "name": "leagueWinPercent",
+       "value": 0.75
+      },
+      {
+       "name": "losses",
+       "value": 11.0
+      },
+      {
+       "name": "playoffSeed",
+       "value": 2.0
+      },
+      {
+       "name": "pointDifferential",
+       "value": 94.0
+      },
+      {
+       "name": "points",
+       "value": 3.5
+      },
+      {
+       "name": "pointsAgainst",
+       "value": 2496.0
+      },
+      {
+       "name": "pointsFor",
+       "value": 2590.0
+      },
+      {
+       "name": "streak",
+       "value": -1.0
+      },
+      {
+       "name": "ties",
+       "value": 0.0
+      },
+      {
+       "name": "winPercent",
+       "value": 0.62068963
+      },
+      {
+       "name": "wins",
+       "value": 18.0
+      },
+      {
+       "name": "gamesAhead",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "type": "home",
+     "description": "Home Record",
+     "summary": "10-5",
+     "stats": [
+      {
+       "name": "wins",
+       "value": 10.0
+      },
+      {
+       "name": "losses",
+       "value": 5.0
+      },
+      {
+       "name": "ties",
+       "value": 0.0
+      },
+      {
+       "name": "winPercent",
+       "value": 0.6666666865348816
+      },
+      {
+       "name": "OTLosses",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "type": "road",
+     "description": "Away Record",
+     "summary": "8-6",
+     "stats": [
+      {
+       "name": "wins",
+       "value": 8.0
+      },
+      {
+       "name": "losses",
+       "value": 6.0
+      },
+      {
+       "name": "ties",
+       "value": 0.0
+      },
+      {
+       "name": "winPercent",
+       "value": 0.5714285969734192
+      },
+      {
+       "name": "OTLosses",
+       "value": 0.0
+      }
+     ]
+    }
+   ]
+  }
+ }
+}
