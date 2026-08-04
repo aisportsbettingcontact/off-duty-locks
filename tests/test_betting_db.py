@@ -54,13 +54,13 @@ def test_betting_upsert_sql_targets_game_key():
 
 def test_vsin_preserve_columns_are_exactly_the_vsin_derived_set():
     """The COALESCE set is the VSIN-derived columns — splits, sharp lines,
-    sharp book, RLM — and nothing Action Network owns."""
+    sharp book, RLM, and the VSIN game id — and nothing Action Network owns."""
     assert set(VSIN_PRESERVE_COLUMNS) == {
         "spread_pct_bets_away", "spread_pct_money_away",
         "total_pct_bets_over", "total_pct_money_over",
         "ml_pct_bets_away", "ml_pct_money_away",
         "sharp_spread", "sharp_total", "sharp_ml_away", "sharp_ml_home",
-        "sharp_book", "spread_rlm", "total_rlm", "ml_rlm",
+        "sharp_book", "spread_rlm", "total_rlm", "ml_rlm", "vsin_game_id",
     }
     assert set(VSIN_PRESERVE_COLUMNS) <= set(BETTING_GAMES_COLUMNS)
     assert not set(VSIN_PRESERVE_COLUMNS) & set(BETTING_GAMES_PK)

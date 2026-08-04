@@ -85,7 +85,7 @@ VSIN_PRESERVE_COLUMNS: tuple[str, ...] = (
     "total_pct_bets_over", "total_pct_money_over",
     "ml_pct_bets_away", "ml_pct_money_away",
     "sharp_spread", "sharp_total", "sharp_ml_away", "sharp_ml_home",
-    "sharp_book", "spread_rlm", "total_rlm", "ml_rlm",
+    "sharp_book", "spread_rlm", "total_rlm", "ml_rlm", "vsin_game_id",
 )
 
 
@@ -242,7 +242,12 @@ def connect(database_url: str | None = None):
     """
     import psycopg  # lazy: driver only needed for live DB work
 
-    timeout = int(os.environ.get("ODL_DB_CONNECT_TIMEOUT", "5"))
+    # A typo'd env value must degrade to the default, not ValueError at
+    # request time — connect() runs inside every DB-backed request handler.
+    try:
+        timeout = int(os.environ.get("ODL_DB_CONNECT_TIMEOUT", "5"))
+    except ValueError:
+        timeout = 5
     return psycopg.connect(_resolve_url(database_url), connect_timeout=timeout)
 
 

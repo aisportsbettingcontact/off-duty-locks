@@ -6,6 +6,8 @@ Postgres instance — the DB I/O is a thin wrapper over them.
 
 from __future__ import annotations
 
+import pytest
+
 from wnba_pipeline.db import (
     STAT_COLUMNS,
     TEAM_STATS_PK,
@@ -145,3 +147,17 @@ def test_connect_timeout_env_override(monkeypatch):
     monkeypatch.setenv("ODL_DB_CONNECT_TIMEOUT", "30")
     db.connect()
     assert calls["connect_timeout"] == 30  # int, not the raw env string
+
+
+@pytest.mark.parametrize("junk", ["soon", "", "5.0"])
+def test_connect_timeout_malformed_env_falls_back_to_default(monkeypatch, junk):
+    """A typo'd ODL_DB_CONNECT_TIMEOUT must not raise ValueError at request
+    time — a bad env value would otherwise 500 every DB-backed request. The
+    guard falls back to the 5-second default instead."""
+    from wnba_pipeline import db
+
+    calls = _fake_psycopg(monkeypatch)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://db.example/wnba")
+    monkeypatch.setenv("ODL_DB_CONNECT_TIMEOUT", junk)
+    assert db.connect() == "conn"
+    assert calls["connect_timeout"] == 5
