@@ -266,15 +266,32 @@ def section_automation(repo: Path, rep: Report) -> None:
     if extract.exists():
         t = extract.read_text()
         checks["extract_concurrency"] = "concurrency:" in t and "wnba-extract" in t
-        checks["extract_month_gated_cron"] = "5-10" in t
+        # Policy since the compliance gate: extract.yml's cron is PARKED
+        # (dispatch-only) until docs/compliance.md is owner-signed. The old
+        # check ("5-10" in the file) was satisfied by the parked cron QUOTED
+        # in the header comment — a vacuous pass. Assert the actual policy:
+        # no schedule trigger at all.
+        checks["extract_cron_parked"] = "schedule:" not in t
         checks["extract_disable_switch"] = "PIPELINE_ENABLED" in t
         checks["extract_season_2026"] = "2026" in t
-        for k in ("extract_concurrency", "extract_month_gated_cron",
+        for k in ("extract_concurrency", "extract_cron_parked",
                   "extract_disable_switch"):
             if not checks[k]:
                 problems.append(f"extract.yml: {k} not satisfied")
     else:
         problems.append("extract.yml missing")
+    # The scheduled cron that DOES exist must be month-gated: data-audit.yml
+    # observes production daily in-season and must never tick offseason.
+    audit = wf / "data-audit.yml"
+    if audit.exists():
+        t = audit.read_text()
+        crons = re.findall(r"-\s*cron:\s*[\"']([^\"']+)[\"']", t)
+        checks["audit_month_gated_cron"] = bool(crons) and all(
+            c.split()[3] == "5-10" for c in crons)
+        if not checks["audit_month_gated_cron"]:
+            problems.append("data-audit.yml: audit_month_gated_cron not satisfied")
+    else:
+        problems.append("data-audit.yml missing")
     if live.exists():
         t = live.read_text()
         checks["live_dispatch_only"] = ("workflow_dispatch" in t

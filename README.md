@@ -33,7 +33,7 @@ https://stats.wnba.com/teams/traditional/?Season=2026&SeasonType=Regular%20Seaso
 
 ```mermaid
 flowchart TD
-    A[Scheduler: GitHub Actions cron<br/>month-gated, daily] --> R[runner.run_once]
+    A[Scheduler: GitHub Actions<br/>dispatch-only, cron parked] --> R[runner.run_once]
     C[CLI: wnba-pipeline run] --> R
     R --> L{overlap lock}
     L -- held --> LH[LOCK_HELD exit 5]

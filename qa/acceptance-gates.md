@@ -20,7 +20,7 @@ Legend: ✅ PASS · ⛔ BLOCKED-sandbox (needs live run) · 🟡 PARTIAL
 | 5 | Repeated extraction is idempotent | Run twice, expect SUCCESS then SUCCESS_UNCHANGED, one snapshot | `qa/verify.py` §e; `tests/test_runner.py::test_idempotent_rerun_is_unchanged` | ✅ PASS |
 | 6 | Failed extraction preserves last-known-good | Establish LKG, feed failing candidate, assert LKG byte-identical + exit 4 | `qa/verify.py` §f; `test_runner.py`, `test_http_challenges.py::test_failed_run_cannot_overwrite_lkg` | ✅ PASS |
 | 7 | Rate limits and timeouts handled safely | Simulate 429/5xx/timeouts, assert bounded retries + Retry-After | `tests/test_http_client.py`, `tests/adversarial/test_http_challenges.py` | ✅ PASS (offline simulation) |
-| 8 | Automation installed and testable | Parse workflows; run offline e2e in CI | `qa/verify.py` §g; `.github/workflows/{ci,extract,live-smoke}.yml`; CI job named `CI` | ✅ PASS |
+| 8 | Automation installed and testable | Parse workflows; run offline e2e in CI | `qa/verify.py` §g; `.github/workflows/{ci,extract,live-smoke,data-audit}.yml`; CI job named `CI` | ✅ PASS |
 | 9 | Live smoke extraction matches official page | Run Live Smoke workflow; compare teams/values to page | `.github/workflows/live-smoke.yml` | ⛔ BLOCKED-sandbox — needs residential/self-hosted egress; GitHub-hosted runs demonstrate the block |
 | 10 | Independent verification passes | Run the QA harness | `qa/verify.py`: **9 pass · 0 fail · 0 blocked** (offline sections) | ✅ PASS |
 | 11 | No secrets in code, logs, fixtures, artifacts | Regex secret sweep + log-hygiene test | `qa/verify.py` §b (0 hits); `test_http_challenges.py::test_no_secrets_in_logs` | ✅ PASS |
