@@ -12,6 +12,14 @@ const titleEl = document.getElementById("detail-title");
 let history = null;
 let market = "spread";
 
+// Scraped strings (team names, book labels, snapshot values) are interpolated
+// into innerHTML below; entity-escape them so upstream data can never become
+// markup. Numbers pass through String() unchanged.
+function esc(v) {
+  return String(v).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 function fmtTime(iso) {
   const d = new Date(iso);
   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET";
@@ -30,7 +38,7 @@ function drawChart() {
   const data = points.filter(p => p[1] !== null && p[1] !== undefined);
   if (!data.length) {
     chartBox.innerHTML = '<p class="empty">No movement history yet. Snapshots start recording every 30 minutes on game days.' +
-      (opening !== null && opening !== undefined ? ` Opening ${label.toLowerCase()}: <strong class="num">${opening}</strong>.` : "") + "</p>";
+      (opening !== null && opening !== undefined ? ` Opening ${label.toLowerCase()}: <strong class="num">${esc(opening)}</strong>.` : "") + "</p>";
     return;
   }
   const W = 720, H = 220, PAD = 42;
@@ -49,15 +57,15 @@ function drawChart() {
   });
 
   const dots = data.map(p =>
-    `<circle cx="${X(new Date(p[0]).getTime())}" cy="${Y(p[1])}" r="3.5" fill="${ACCENT}"><title>${fmtTime(p[0])}: ${p[1]}</title></circle>`).join("");
+    `<circle cx="${X(new Date(p[0]).getTime())}" cy="${Y(p[1])}" r="3.5" fill="${ACCENT}"><title>${esc(fmtTime(p[0]))}: ${esc(p[1])}</title></circle>`).join("");
   const openLine = (opening !== null && opening !== undefined)
     ? `<line x1="${PAD}" x2="${W - PAD}" y1="${Y(opening)}" y2="${Y(opening)}" stroke="${MUTED}" stroke-dasharray="4 4"/>` +
-      `<text x="${W - PAD}" y="${Y(opening) - 6}" fill="${MUTED}" font-size="11" text-anchor="end">open ${opening}</text>`
+      `<text x="${W - PAD}" y="${Y(opening) - 6}" fill="${MUTED}" font-size="11" text-anchor="end">open ${esc(opening)}</text>`
     : "";
   const yTicks = [yMin, (yMin + yMax) / 2, yMax].map(v =>
     `<text x="${PAD - 8}" y="${Y(v) + 4}" fill="${MUTED}" font-size="11" text-anchor="end" class="num">${(+v).toFixed(1)}</text>`).join("");
   const tLabels = [data[0], data[data.length - 1]].map(p =>
-    `<text x="${X(new Date(p[0]).getTime())}" y="${H - PAD + 18}" fill="${MUTED}" font-size="11" text-anchor="middle">${fmtTime(p[0])}</text>`).join("");
+    `<text x="${X(new Date(p[0]).getTime())}" y="${H - PAD + 18}" fill="${MUTED}" font-size="11" text-anchor="middle">${esc(fmtTime(p[0]))}</text>`).join("");
 
   chartBox.innerHTML =
     `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${label} movement">` +
@@ -71,13 +79,13 @@ function drawSnaps() {
   const snaps = (history && history.snapshots) || [];
   if (!snaps.length) { snapsBox.innerHTML = ""; return; }
   const rows = snaps.map(s => `<tr>
-    <td>${fmtTime(s.captured_at_utc)}</td>
-    <td class="num">${s.spread ?? "—"}</td>
-    <td class="num">${s.total ?? "—"}</td>
-    <td class="num">${s.ml_away ?? "—"} / ${s.ml_home ?? "—"}</td>
-    <td class="num">${s.spread_pct_bets_away ?? "—"}% / ${s.spread_pct_bets_away != null ? 100 - s.spread_pct_bets_away : "—"}%</td>
-    <td class="num">${s.spread_pct_money_away ?? "—"}% / ${s.spread_pct_money_away != null ? 100 - s.spread_pct_money_away : "—"}%</td>
-    <td>${s.public_book ?? "—"}</td>
+    <td>${esc(fmtTime(s.captured_at_utc))}</td>
+    <td class="num">${esc(s.spread ?? "—")}</td>
+    <td class="num">${esc(s.total ?? "—")}</td>
+    <td class="num">${esc(s.ml_away ?? "—")} / ${esc(s.ml_home ?? "—")}</td>
+    <td class="num">${esc(s.spread_pct_bets_away ?? "—")}% / ${esc(s.spread_pct_bets_away != null ? 100 - s.spread_pct_bets_away : "—")}%</td>
+    <td class="num">${esc(s.spread_pct_money_away ?? "—")}% / ${esc(s.spread_pct_money_away != null ? 100 - s.spread_pct_money_away : "—")}%</td>
+    <td>${esc(s.public_book ?? "—")}</td>
   </tr>`).join("");
   snapsBox.innerHTML = `<table class="snaps">
     <thead><tr><th>Time</th><th>Spread</th><th>Total</th><th>ML a/h</th><th>Tickets a/h</th><th>Money a/h</th><th>Book</th></tr></thead>
@@ -132,11 +140,11 @@ document.querySelectorAll(".rank-tabs button").forEach(btn =>
       const r = await fetch(`/api/team-stats?split=${btn.dataset.split}`);
       const data = await r.json();
       body.innerHTML = (data.teams || []).map((t, i) => `<tr>
-        <td class="rank">${i + 1}</td><td>${t.team_name}</td>
+        <td class="rank">${i + 1}</td><td>${esc(t.team_name)}</td>
         <td class="num">${t.offensive_rating?.toFixed?.(1) ?? "—"}</td>
         <td class="num">${t.possessions?.toFixed?.(1) ?? "—"}</td>
         <td class="num">${t.points?.toFixed?.(1) ?? "—"}</td>
-        <td class="num">${t.wins ?? "—"}-${t.losses ?? "—"}</td></tr>`).join("") ||
+        <td class="num">${esc(t.wins ?? "—")}-${esc(t.losses ?? "—")}</td></tr>`).join("") ||
         '<tr><td colspan="6" class="empty">No team stats published yet.</td></tr>';
     } catch {
       body.innerHTML = '<tr><td colspan="6" class="empty">Rankings unavailable.</td></tr>';
