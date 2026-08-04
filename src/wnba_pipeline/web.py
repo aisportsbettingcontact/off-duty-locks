@@ -245,9 +245,12 @@ def _logo_url(abbr: Any) -> str | None:
 def _split_team_name(full_name: Any, nickname: Any) -> tuple[str, str]:
     """(city, nickname) for display: 'Las Vegas Aces' -> ('Las Vegas', 'Aces').
 
-    The betting feed carries nicknames; team_stats carries full names. Prefer
-    stripping the known nickname off the full name; fall back to a last-word
-    split, then to whichever name exists alone."""
+    Both sources usually carry FULL names: team_stats carries them, and the
+    betting feed's away_name/home_name are full names too (actionnetwork.py
+    prefers ``full_name`` over ``display_name``). When ``nickname`` is a real
+    suffix of ``full_name``, strip it off; when the two are the same string
+    (the common full==full case) or the suffix doesn't match, fall back to a
+    last-word split, then to whichever name exists alone."""
     full = str(full_name or "").strip()
     nick = str(nickname or "").strip()
     if full:
