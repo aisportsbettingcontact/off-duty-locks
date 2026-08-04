@@ -1,18 +1,25 @@
 name: Extract
 
-# Manual-only WNBA last-7-games extraction. The daily cron ("30 10 * 5-10 *",
-# May–October) is PARKED per the docs/compliance.md gate: the robots/ToS review
-# must be recorded and owner-signed BEFORE any schedule exists, and every
-# scheduled run since Jul 21 ended UPSTREAM_UNAVAILABLE anyway — stats.wnba.com
-# (Akamai) blocks datacenter IPs, so a GitHub-hosted runner cannot reach it.
-# Revival plan: a self-hosted residential runner (see docs/deployment.md), and
-# only after the compliance review is signed off. Parking the cron also
-# sidesteps GitHub's 60-day-inactivity auto-disable, which would otherwise
-# silently kill this workflow over the offseason. The extractor's own
-# retry/backoff/circuit breaker still handle transient upstream issues within
-# a manual run.
+# Daily WNBA team-stats extraction from ESPN's public APIs, publishing the
+# `last7` and `ytd` splits straight to the Postgres serving layer.
+#
+# Source history: this workflow originally polled stats.wnba.com, whose Akamai
+# edge proved unreachable for EVERY unattended client — GitHub-hosted runners
+# (14 days of read_timeout), residential curl, the pipeline's own client run
+# residentially, and a real Chromium session all stall. That access stays
+# PARKED (docs/compliance.md section 1 records the owner sign-off and the
+# 4-way reachability evidence). Per owner decision 2026-08-04 the source is
+# now ESPN (site.api.espn.com + sports.core.api.espn.com), which serves
+# datacenter IPs — so this runs on ubuntu-latest by design, and the daily
+# cron is restored. docs/compliance.md section "ESPN" governs request budgets
+# (1 scheduled run/day, <= ~160 requests/run worst case, honest UA,
+# retry/backoff/circuit breaker in http_client.py).
 
 on:
+  schedule:
+    # Daily at 10:30 UTC, season months only (May-October). Also keeps the
+    # workflow out of GitHub's 60-day-inactivity auto-disable during season.
+    - cron: "30 10 * 5-10 *"
   workflow_dispatch:
     inputs:
       season:
@@ -30,16 +37,18 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write   # commit accepted snapshots under data/
+  contents: read
   issues: write     # open a pipeline-alert issue on failure
 
 jobs:
   extract:
     name: extract
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest   # ESPN serves datacenter IPs — that is the point
     timeout-minutes: 20
     # Disable switch: set repository variable PIPELINE_ENABLED=false to pause.
     if: ${{ vars.PIPELINE_ENABLED != 'false' }}
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,25 +63,63 @@ jobs:
         # un-pinned setuptools; setup-python already ships one.
         run: python -m pip install --upgrade pip && pip install --require-hashes -r requirements.lock && pip install -e . --no-deps --no-build-isolation
 
-      - name: Run extraction
+      - name: Guard — DATABASE_URL must be set
+        run: |
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::DATABASE_URL secret is not set. Add the PUBLIC Railway Postgres URL as a repo secret."
+            exit 1
+          fi
+          # Publishing needs the public URL; the internal host is unreachable here.
+          case "$DATABASE_URL" in
+            *railway.internal*)
+              echo "::error::DATABASE_URL points at the INTERNAL Railway host, unreachable from GitHub. Use DATABASE_PUBLIC_URL (*.proxy.rlwy.net)."
+              exit 1;;
+          esac
+
+      - name: Ensure serving schema
+        run: wnba-pipeline db-init
+
+      - name: Extract + publish team stats (ESPN — last7 + ytd)
         id: extract
         run: |
           set -uo pipefail
           SEASON="${{ github.event.inputs.season || '2026' }}"
           LASTN="${{ github.event.inputs.last_n_games || '7' }}"
           set +e
-          wnba-pipeline run \
+          wnba-pipeline espn-team-stats \
             --season "$SEASON" \
             --last-n-games "$LASTN" \
-            --data-root "$GITHUB_WORKSPACE/data" > manifest.json
+            --data-root "$RUNNER_TEMP/espn-extract" > manifest.json
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+
+      # Full-scope validation is the gate wherever team stats are written
+      # (repo law): this run just wrote both splits, so freshness, per-split
+      # believability, AND the cross-split tripwire must all hold. With two
+      # genuinely distinct ESPN extractions behind last7/ytd,
+      # cross.splits_identical firing again would mean a real regression.
+      - name: Validate the serving tables (full scope gates this run)
+        id: validate
+        run: |
+          set -uo pipefail
+          set +e
+          wnba-pipeline validate-data --season 2026
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
           set -e
 
       - name: Run summary
         if: always()
         run: |
-          echo "## WNBA extraction run" >> "$GITHUB_STEP_SUMMARY"
-          python3 scripts/manifest_summary.py manifest.json >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## WNBA team-stats extraction (ESPN)"
+            python3 scripts/manifest_summary.py manifest.json
+            echo ""
+            echo "## Data validation"
+            echo ""
+            echo '```'
+            wnba-pipeline validate-data --season 2026 2>&1 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload manifest artifact
         if: always()
@@ -82,34 +129,23 @@ jobs:
           path: manifest.json
           retention-days: 30
 
-      - name: Commit accepted data (only on success)
-        if: ${{ steps.extract.outputs.exit_code == '0' }}
-        run: |
-          set -euo pipefail
-          RUN_ID="$(python3 -c 'import json;print(json.load(open("manifest.json"))["runId"])')"
-          git config user.name "wnba-pipeline-bot"
-          git config user.email "wnba-pipeline-bot@users.noreply.github.com"
-          git add data/
-          if git diff --cached --quiet; then
-            echo "No data changes to commit (idempotent run)."
-          else
-            git commit -m "Extract WNBA team stats: run ${RUN_ID} [skip ci]"
-            git push
-          fi
-
       - name: Alert on failure
-        if: ${{ steps.extract.outputs.exit_code != '0' }}
+        if: ${{ steps.extract.outputs.exit_code != '0' || steps.validate.outputs.exit_code != '0' }}
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            let manifest = {};
-            try { manifest = JSON.parse(fs.readFileSync('manifest.json','utf8')); } catch (e) {}
+            let manifests = [];
+            try {
+              manifests = fs.readFileSync('manifest.json','utf8').trim().split('\n')
+                .filter(Boolean).map(l => { try { return JSON.parse(l); } catch (e) { return {unparsed: l}; } });
+            } catch (e) {}
             const code = '${{ steps.extract.outputs.exit_code }}';
-            const title = `pipeline-alert: extraction failed (exit ${code})`;
+            const validate = '${{ steps.validate.outputs.exit_code }}' || '(step did not run)';
+            const title = `pipeline-alert: ESPN extraction failed (extract ${code}, validate ${validate})`;
             const body = [
-              `Extraction run failed with exit code **${code}**.`,
-              '', '```json', JSON.stringify(manifest, null, 2), '```',
+              `ESPN team-stats extraction: extract exit **${code}**, validate-data exit **${validate}**.`,
+              '', '```json', JSON.stringify(manifests, null, 2), '```',
               '', 'See docs/runbook.md for triage by failureReason.'
             ].join('\n');
             const label = 'pipeline-alert';
@@ -123,12 +159,11 @@ jobs:
               await github.rest.issues.create({owner, repo, title, body, labels: [label]});
             }
 
-      - name: Fail the run on extraction failure
+      - name: Fail the run on extraction or validation failure
         # Honest gate (repo law 3): a failed extraction must show a red run,
-        # not a green run plus an issue. 14 straight UPSTREAM_UNAVAILABLE runs
-        # showed green because only the alert step above ever saw the captured
-        # exit code. This step MUST stay after the alert step so both fire.
-        if: ${{ steps.extract.outputs.exit_code != '0' }}
+        # not a green run plus an issue. This step MUST stay after the alert
+        # step so both fire.
+        if: ${{ steps.extract.outputs.exit_code != '0' || steps.validate.outputs.exit_code != '0' }}
         run: |
-          echo "::error::extraction exited ${{ steps.extract.outputs.exit_code }} — see the run summary and the pipeline-alert issue."
+          echo "::error::extract exited ${{ steps.extract.outputs.exit_code }}, validate-data exited ${{ steps.validate.outputs.exit_code }} — see the run summary and the pipeline-alert issue."
           exit 1
