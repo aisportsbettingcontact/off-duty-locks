@@ -1,4 +1,4 @@
-"""Action Network v2 scoreboard -> open + DraftKings odds/splits per WNBA game.
+"""Action Network v2 scoreboard -> open + DraftKings odds per WNBA game.
 
 Port of WNBA-AN-Scraper.ts onto the pipeline's hardened HTTP client. For each
 game the scoreboard carries per-book markets; the opening line is book 30 and

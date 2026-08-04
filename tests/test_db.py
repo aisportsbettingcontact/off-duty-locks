@@ -102,3 +102,46 @@ def test_schema_creates_snapshot_table():
 
     schema = (Path(__file__).resolve().parents[1] / "src/wnba_pipeline/schema.sql").read_text()
     assert "CREATE TABLE IF NOT EXISTS betting_line_snapshots" in schema
+
+
+def _fake_psycopg(monkeypatch):
+    """Stand-in psycopg module that records connect() kwargs.
+
+    Installed via sys.modules so ``connect()``'s lazy ``import psycopg`` picks
+    it up — the real driver is never needed, keeping this file's no-psycopg
+    promise intact."""
+    import sys
+    import types
+
+    calls: dict = {}
+
+    def fake_connect(url, **kwargs):
+        calls["url"] = url
+        calls.update(kwargs)
+        return "conn"
+
+    monkeypatch.setitem(sys.modules, "psycopg", types.SimpleNamespace(connect=fake_connect))
+    return calls
+
+
+def test_connect_passes_default_connect_timeout(monkeypatch):
+    # Without a bounded handshake a blackholed DB pins a sync gunicorn worker
+    # for the ~2-minute OS default; 5 seconds fails fast instead.
+    from wnba_pipeline import db
+
+    calls = _fake_psycopg(monkeypatch)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://db.example/wnba")
+    monkeypatch.delenv("ODL_DB_CONNECT_TIMEOUT", raising=False)
+    assert db.connect() == "conn"
+    assert calls["url"] == "postgresql://db.example/wnba"
+    assert calls["connect_timeout"] == 5
+
+
+def test_connect_timeout_env_override(monkeypatch):
+    from wnba_pipeline import db
+
+    calls = _fake_psycopg(monkeypatch)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://db.example/wnba")
+    monkeypatch.setenv("ODL_DB_CONNECT_TIMEOUT", "30")
+    db.connect()
+    assert calls["connect_timeout"] == 30  # int, not the raw env string
