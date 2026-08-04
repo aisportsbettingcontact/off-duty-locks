@@ -247,6 +247,26 @@ def test_dashboard_db_error_still_200(client, monkeypatch):
     assert "temporarily unavailable" in r.data.decode()
 
 
+# Exact header set the after_request hook must emit. Deliberately NO broader
+# Content-Security-Policy: the dashboard template uses inline script/styles,
+# which a script-src/style-src policy would break.
+SECURITY_HEADERS = {
+    "Strict-Transport-Security": "max-age=15552000",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "frame-ancestors 'none'",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+}
+
+
+def test_security_headers_on_every_response(client, monkeypatch):
+    _empty_dashboard(monkeypatch)
+    for path in ("/", "/healthz"):
+        r = client.get(path)
+        for name, value in SECURITY_HEADERS.items():
+            assert r.headers.get(name) == value, f"{path}: {name!r} wrong or missing"
+
+
 def test_jsonable_coercion():
     assert web._jsonable(Decimal("1.5")) == 1.5
     assert web._jsonable(datetime.date(2026, 7, 22)) == "2026-07-22"
