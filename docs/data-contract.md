@@ -10,9 +10,12 @@ tolerances, storage layout, and module interfaces. Code-level contract lives in
 - Documented structured endpoint: `https://stats.wnba.com/stats/leaguedashteamstats`
   (WNBA runs the same stats platform as stats.nba.com; `LeagueID=10`).
   **Live verification status is tracked in `docs/source-contract.md`** — the
-  development sandbox cannot reach WNBA hosts (network policy 403), so live
-  page↔endpoint verification must be executed via the GitHub Actions
-  `live-smoke` workflow, which has open network access.
+  development sandbox cannot reach WNBA hosts (network policy 403), and the
+  stats edge (Akamai) also blocks datacenter IPs, GitHub-hosted runners
+  included. Live page↔endpoint verification must therefore run the
+  `live-smoke` workflow from a residential IP or self-hosted runner
+  (`docs/runbook.md` → *Source reachability*); a GitHub-hosted run
+  demonstrates the block, not the contract.
 - Filters: Season=2026, SeasonType="Regular Season", LastNGames=7,
   MeasureType=Base (traditional), PerMode=PerGame (page default),
   sorted by TEAM_NAME ascending.

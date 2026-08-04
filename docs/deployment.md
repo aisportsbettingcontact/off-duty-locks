@@ -9,15 +9,14 @@ reuse. The only automation pattern present in the repository's history was
 
 - **Scheduler:** GitHub Actions `schedule` (cron). No second scheduling system
   is introduced — there is nothing to reuse and Actions already runs CI here.
-- **Storage:** file-based, committed to the repository under `data/`. There is
-  **no production database**, so there are no production migrations to authorize
-  and no external datastore to provision. The committed files *are* the store;
-  their history is the audit trail.
+- **Storage:** file-based, committed to the repository under `data/`, plus a
+  **Railway Postgres serving layer** the site reads (added later — see
+  *Postgres serving layer* below). The committed files remain the source of
+  truth and audit trail; Postgres is the read model.
 
-This keeps the whole system inspectable in git, trivially rolled back with
-`git revert`, and free of external infrastructure. If a database is introduced
-later, add a storage adapter behind the existing `Store` interface rather than a
-new scheduler.
+This keeps the extraction pipeline inspectable in git and trivially rolled back
+with `git revert`. The serving layer is deliberately thin: its schema is
+additive and self-applying — see *Schema changes & rollout order* below.
 
 ## Prerequisites
 
@@ -61,7 +60,10 @@ The source contract (`docs/source-contract.md`) is written from documented
 platform knowledge and is **pending live verification** because `*.wnba.com` is
 blocked in the build sandbox. To confirm it:
 
-1. Run the **Live Smoke** workflow (`workflow_dispatch`). It executes
+1. Run the **Live Smoke** workflow (`workflow_dispatch`) **from a residential
+   IP or self-hosted runner** — GitHub-hosted runners are datacenter-blocked
+   (see *Prerequisites*), so a hosted run demonstrates the block, not the
+   contract. It executes
    `scripts/capture_live_contract.py` (conservative: ≤5 requests, ≥3s spacing,
    honors `Retry-After`, aborts on 403) and one live extraction, then uploads
    sanitized captures as artifacts. Nothing is committed.
@@ -115,6 +117,28 @@ both feeds in one place.
 networking) for the web service and stored as a GitHub Actions secret (public
 URL) for the scrapers. No database credentials are stored in the repository.
 
+### Schema changes & rollout order
+
+The serving schema (`src/wnba_pipeline/schema.sql`) is applied by
+`wnba-pipeline db-init`, which runs as the first step of every **Scrape +
+Publish** tick (`scrape.yml` → *Ensure serving schema*). Every statement is
+additive and idempotent (`CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT
+EXISTS`), so re-applying on every tick is safe and there is no separate
+migration system.
+
+Rollout order for a schema change (AGENTS.md law 6):
+
+1. **Merge** the `schema.sql` change — additive only, guarded by
+   `IF NOT EXISTS`; never a destructive rewrite of live tables.
+2. **Apply** — the next scheduled scrape tick runs `db-init` against live
+   Postgres. To apply immediately, dispatch **Scrape + Publish** manually or
+   run `wnba-pipeline db-init --database-url "<public url>"` yourself.
+3. **Then rely on it.** Merge to `main` also deploys the web service, so code
+   that reads a new column can go live before a tick has created it — until
+   `db-init` runs, those queries fail and the site serves its empty
+   state / 503s. Land the schema change first (or dispatch `db-init` right
+   after merging), then ship the code that needs it.
+
 ### Scrapers (GitHub Actions — `scrape.yml`)
 
 - **betting**: runs every 30 min through the season's pregame/in-play windows,
@@ -125,7 +149,8 @@ URL) for the scrapers. No database credentials are stored in the repository.
   included), so a live scrape can't run here yet. Run the workflow manually with
   **Seed team_stats from fixture = true** to (re)populate `team_stats` from the
   committed fixture; for live YTD/Last-7 use a residential or self-hosted runner:
-  `wnba-pipeline run-team-stats --publish --database-url "<public url>"`.
+  `wnba-pipeline run-team-stats --database-url "<public url>"` (publishing is
+  the default; `--no-publish` skips it).
 - Pause everything with repository variable `PIPELINE_ENABLED=false`.
 
 ## Web service & custom domain (offdutylocks.com)

@@ -22,10 +22,12 @@ https://stats.wnba.com/teams/traditional/?Season=2026&SeasonType=Regular%20Seaso
 - ⏳ **Live source verification is pending.** This project was built in a sandbox
   whose network policy blocks `*.wnba.com`, so every claim about the live
   endpoint is labeled *documented-platform-knowledge (pending live verification)*
-  in `docs/source-contract.md`. Run the **Live Smoke** GitHub Actions workflow
-  (open network on runners) to confirm the contract and flip those claims to
-  live-verified. Until then, live checks are reported as **BLOCKED**, never
-  passed. See `qa/acceptance-gates.md`.
+  in `docs/source-contract.md`. Closing this requires running the **Live
+  Smoke** workflow from a residential IP or a self-hosted runner: the stats
+  edge (Akamai) blocks datacenter IPs, so GitHub-hosted runs demonstrate the
+  block, not the contract (`docs/runbook.md` → *Source reachability*). Until
+  then, live checks are reported as **BLOCKED**, never passed. See
+  `qa/acceptance-gates.md`.
 
 ## Architecture
 
@@ -103,26 +105,34 @@ Postgres is the read model.
 **Betting** → `betting_games` (one wide row per game): opening + current
 (DraftKings) + sharp (Circa) spread/total/moneyline, % of bets, % of money,
 line movement, and reverse-line-movement flags. Sourced from Action Network
-(odds + splits) and VSIN (the Circa sharp line), merged by date + matchup.
+(opening + current DraftKings lines) and VSIN (% bets / % money splits + the
+Circa sharp line), merged by date + matchup.
 
 ```bash
-wnba-pipeline db-init                    # create the schema (idempotent)
-wnba-pipeline run-team-stats --publish   # YTD + Last-7 -> team_stats
-wnba-pipeline betting --publish          # VSIN + Action Network -> betting_games
-# All accept --database-url; the default is $DATABASE_URL.
+wnba-pipeline db-init          # create the schema (idempotent)
+wnba-pipeline run-team-stats   # YTD + Last-7 -> team_stats
+wnba-pipeline betting          # VSIN + Action Network -> betting_games
+# Both feeds publish by default (--no-publish to skip). All accept
+# --database-url; the default is $DATABASE_URL.
 ```
 
-**Where each runs:** the betting feed runs on Railway (VSIN + Action Network are
+**Where each runs:** ALL scraping runs on GitHub Actions
+(`.github/workflows/scrape.yml`); Railway only serves the site. The betting
+feed publishes from a GitHub-hosted runner (VSIN + Action Network are
 datacenter-reachable). Team stats need a non-datacenter egress (stats.wnba.com
-blocks cloud IPs) and run off-Railway, publishing to the same Postgres via its
-public URL. See `docs/deployment.md`.
+blocks cloud IPs, GitHub-hosted runners included) and run from a residential
+machine or self-hosted runner, publishing to the same Postgres via its public
+URL. See `docs/deployment.md`.
 
 ## Website (offdutylocks.com)
 
 A small read-only Flask app (`wnba_pipeline.web`) serves the published data:
 
-- `/` — HTML dashboard (betting board + Last-7 / Year-to-Date team tables);
-- `/api/team-stats?split=last7|ytd` and `/api/betting` — JSON;
+- `/` — the research dashboard (betting board with model edges + offensive
+  power rankings);
+- `/tables` — the legacy stat/betting tables (the pre-dashboard index);
+- `/api/team-stats?split=last7|ytd`, `/api/betting`, and
+  `/api/games/<game_key>/history` — JSON;
 - `/healthz` — health check.
 
 It is the Railway service (the scrapers run on GitHub Actions), reading Postgres
