@@ -1,33 +1,34 @@
 # offdutylocks — WNBA Team-Statistics Extraction Pipeline
 
-Production-grade, automated extraction of **WNBA traditional team statistics**
-from the official stats platform, normalized, validated, versioned, and
-refreshed on a conservative schedule.
+Production-grade, automated extraction of **WNBA traditional team statistics**,
+normalized, validated, versioned, and refreshed on a conservative daily
+schedule.
 
-Target dataset (the page this pipeline reproduces):
+Team stats are sourced from **ESPN's public JSON APIs** (owner decision
+2026-08-04; `docs/compliance.md` section "ESPN" governs budgets):
 
-```
-https://stats.wnba.com/teams/traditional/?Season=2026&SeasonType=Regular%20Season&LastNGames=7&sort=TEAM_NAME&dir=1
-```
+- **`ytd`** — season statistics + W-L record per team
+  (`sports.core.api.espn.com` season statistics, `site.api.espn.com` team
+  record), cross-checked against the schedule's completed-game count;
+- **`last7`** — each team's last 7 completed regular-season games, aggregated
+  from per-event box scores (`site.api.espn.com/…/summary`), minutes derived
+  from game length (40 + 5·OT).
 
-- **Season:** 2026 · **Season type:** Regular Season · **Last N games:** 7
-- **Sort:** team name, ascending (applied deterministically during normalization)
-- **Method:** the official structured JSON endpoint
-  (`stats.wnba.com/stats/leaguedashteamstats`), not HTML scraping.
+Rows publish under the canonical team ids via a name crosswalk, so the rest of
+the pipeline — validation, storage, serving tables — is unchanged.
 
 ## Status
 
-- ✅ Extractor, validation, storage, automation, CLI, and full offline test
-  suite are implemented and passing.
-- ⏳ **Live source verification is pending.** This project was built in a sandbox
-  whose network policy blocks `*.wnba.com`, so every claim about the live
-  endpoint is labeled *documented-platform-knowledge (pending live verification)*
-  in `docs/source-contract.md`. Closing this requires running the **Live
-  Smoke** workflow from a residential IP or a self-hosted runner: the stats
-  edge (Akamai) blocks datacenter IPs, so GitHub-hosted runs demonstrate the
-  block, not the contract (`docs/runbook.md` → *Source reachability*). Until
-  then, live checks are reported as **BLOCKED**, never passed. See
-  `qa/acceptance-gates.md`.
+- ✅ Extractor (ESPN), validation, storage, automation, CLI, and full offline
+  test suite are implemented and passing; fixtures under `fixtures/espn/` are
+  real trimmed captures from 2026-08-04.
+- 🅿️ **stats.wnba.com is parked.** The original source proved unreachable for
+  every unattended client — datacenter runners, residential curl, the
+  pipeline's own client run residentially, and a real Chromium session all
+  stall at the Akamai edge (`docs/compliance.md` section 1 records the
+  evidence and the owner sign-off). The old extractor, source contract, and
+  Live Smoke workflow remain in-tree describing that parked path; the
+  once-planned residential-runner revival is retired.
 
 ## Architecture
 
@@ -87,7 +88,9 @@ data/
 ```
 
 The dataset identity (`<key>`) is the extraction key, e.g.
-`wnba-teamstats:v1:season=2026:type=regular-season:lastn=7:measure=base:permode=pergame`.
+`wnba-teamstats:v2:source=espn:season=2026:type=regular-season:lastn=7:measure=base:permode=pergame`
+(ESPN-sourced runs; the parked stats.wnba.com datasets keep their `v1` keys,
+so the two provenances can never mix).
 
 ## Database serving layer & betting feed
 
@@ -109,20 +112,20 @@ line movement, and reverse-line-movement flags. Sourced from Action Network
 Circa sharp line), merged by date + matchup.
 
 ```bash
-wnba-pipeline db-init          # create the schema (idempotent)
-wnba-pipeline run-team-stats   # YTD + Last-7 -> team_stats
-wnba-pipeline betting          # VSIN + Action Network -> betting_games
+wnba-pipeline db-init           # create the schema (idempotent)
+wnba-pipeline espn-team-stats   # ESPN: Last-7 + YTD -> team_stats
+wnba-pipeline betting           # VSIN + Action Network -> betting_games
 # Both feeds publish by default (--no-publish to skip). All accept
 # --database-url; the default is $DATABASE_URL.
 ```
 
-**Where each runs:** ALL scraping runs on GitHub Actions
-(`.github/workflows/scrape.yml`); Railway only serves the site. The betting
-feed publishes from a GitHub-hosted runner (VSIN + Action Network are
-datacenter-reachable). Team stats need a non-datacenter egress (stats.wnba.com
-blocks cloud IPs, GitHub-hosted runners included) and run from a residential
-machine or self-hosted runner, publishing to the same Postgres via its public
-URL. See `docs/deployment.md`.
+**Where each runs:** ALL scraping runs on GitHub Actions; Railway only serves
+the site. Betting publishes every 30 minutes (`scrape.yml`; VSIN + Action
+Network). Team stats publish daily (`extract.yml`, 10:30 UTC May–October) from
+ESPN, which serves datacenter IPs — GitHub-hosted runners work, and the old
+residential-runner plan is retired (every unattended access mode to
+stats.wnba.com stalls; see `docs/compliance.md` section 1). Both write to the
+same Postgres via its public URL. See `docs/deployment.md`.
 
 ## Website (offdutylocks.com)
 
@@ -169,8 +172,9 @@ renders a friendly empty state when the database has no data yet. The domain
 
 ## Compliance
 
-Uses only the public structured endpoint with conservative frequency (one
-scheduled run per day, ≥3s spacing, ≤5 requests/run, full `Retry-After`
-support). No access controls, CAPTCHAs, authentication, or rate limits are
+Uses only public structured endpoints with conservative frequency: one
+scheduled team-stats run per day against ESPN (≤ ~160 requests worst case,
+0.5s spacing, honest pipeline User-Agent — `docs/compliance.md` section
+"ESPN"). No access controls, CAPTCHAs, authentication, or rate limits are
 bypassed. No cookies, tokens, or credentials are sent, stored, or logged. See
 `docs/compliance.md`.

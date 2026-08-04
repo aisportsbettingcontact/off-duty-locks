@@ -1,22 +1,41 @@
-# Compliance — stats.wnba.com Access Policy
+# Compliance — Source Access Policy
 
-Owner: Subagent 1. Applies to every component that touches the live source:
-`scripts/capture_live_contract.py`, the extractor (`http_client.py` /
-`extractor.py`), and the GitHub Actions `live-smoke` workflow.
+Owner: Subagent 1. Applies to every component that touches a live source:
+`scripts/capture_live_contract.py`, the extractors (`http_client.py` /
+`extractor.py` / `espn.py`), and the `live-smoke` and `extract` GitHub
+Actions workflows. Sections 1-5 cover stats.wnba.com (access PARKED); the
+"ESPN" section covers the team-stats source in production use since
+2026-08-04.
 
-## 1. robots.txt / Terms-of-Service review status
+## 1. robots.txt / Terms-of-Service review status (stats.wnba.com)
 
-**Status: DRAFT — reviewed 2026-08-04, PENDING OWNER SIGN-OFF; extract
-schedule remains parked until signed.**
+**Status: reviewed 2026-08-04; owner SIGNED OFF 2026-08-04 (recorded per
+owner direction in-session). stats.wnba.com access remains PARKED regardless
+— the host is unreachable for any unattended client, and the team-stats
+source is now ESPN per the same owner decision (see section "ESPN").**
+
+Reachability evidence (4 independent access modes, all failed):
+
+1. **GitHub-hosted (datacenter) runners** — 14 consecutive days of scheduled
+   runs ending `read_timeout`; the Akamai edge never answered.
+2. **Residential curl** — the request stalls indefinitely (no response bytes).
+3. **The pipeline's own client, run residentially** — 5x `read_timeout`
+   through the full retry/backoff ladder.
+4. **A real Chromium session** — 25-second timeout, including the site's own
+   stats page rendering zero data rows.
+
+The block is on the access class (unattended clients), not on an IP range, so
+the previously planned residential/self-hosted runner does not cure it and is
+retired (docs/deployment.md).
 
 The technical review below was performed on 2026-08-04 from a residential
-IP — the same access mode any future self-hosted runner would use — with a
-normal desktop-browser User-Agent, exactly two HTTPS GET requests, no
-retries, and no redirects followed (none were issued). This replaces the
+IP with a normal desktop-browser User-Agent, exactly two HTTPS GET requests,
+no retries, and no redirects followed (none were issued). This replaces the
 previous UNVERIFIED status (the development sandbox blocked `*.wnba.com`, so
-nothing could be checked from there). Owner sign-off is a legal/business
-judgment on the findings below; it is not implied by this review, and the
-extract schedule stays parked until it is recorded here.
+nothing could be checked from there). The owner sign-off recorded above
+covers these findings; it does NOT revive the stats.wnba.com schedule —
+access stays parked on the reachability evidence, and the restored `extract`
+schedule polls ESPN only (section "ESPN").
 
 | # | URL | Result 2026-08-04 |
 |---|---|---|
@@ -165,3 +184,56 @@ must adopt the same ceilings):
 - If the source introduces authentication, paywalls, or explicit bot terms,
   the pipeline halts (runs report `UPSTREAM_UNAVAILABLE`) until the compliance
   review is redone by a human.
+
+## ESPN (`site.api.espn.com` / `sports.core.api.espn.com`)
+
+Team-stats source in production since the owner decision of 2026-08-04.
+Applies to `src/wnba_pipeline/espn.py` and the `extract` workflow.
+
+**robots.txt findings.** Fetched once per host on 2026-08-04 (two requests
+total, counted against that session's recording budget). Both hosts answer
+`GET /robots.txt` with **HTTP 403** and this exact 118-byte HTML body — no
+robots policy is served at all:
+
+```text
+<html>
+<head><title>403 Forbidden</title></head>
+<body>
+<center><h1>403 Forbidden</h1></center>
+</body>
+</html>
+```
+
+These are API-only hosts (no crawlable HTML surface), and this pipeline is
+not a crawler (fixed endpoints, no link following). With no robots policy
+published, the governing constraints are the polite-use budget below and the
+stop-on-block rules of section 2, which apply to ESPN unchanged (403/404
+abort immediately, `Retry-After` honored, no evasion of any kind, ever).
+
+**Polite request budget (hard commitments).**
+
+1. **One scheduled run per day** (`extract.yml`, cron `30 10 * 5-10 *`,
+   season months only). Manual dispatches are for debugging and follow the
+   same in-run limits.
+2. **At most ~160 requests per run, worst case.** A full run costs
+   1 (teams list) + 15 (schedules) + 15 (season statistics) + 15 (records)
+   = 46 fixed requests, plus one `summary` per unique event in the 15 teams'
+   Last-7 windows — between 53 and 105 (every event serves two teams'
+   windows when shared; summaries are memoized so no event is ever fetched
+   twice, across both splits). Typical runs sit near 100 requests.
+3. **Politeness spacing of 0.5 s** between consecutive live requests, plus
+   the shared retry/backoff/circuit-breaker transport policy of
+   `http_client.py` (bounded retries, exponential backoff with jitter, one
+   breaker across the whole run).
+4. **Honest identification**: the UA is
+   `offdutylocks-pipeline/1.0 (+https://offdutylocks.com)` — a plain
+   pipeline UA, not a browser disguise. No cookies, no tokens, no
+   `Authorization` headers, ever (section 3 applies unchanged).
+
+**Context.** ESPN's public JSON APIs serve datacenter clients openly (they
+answer GitHub-hosted runners normally — verified live before adoption) and
+are already consumed at much larger scale elsewhere in the org; this
+pipeline's daily double-digit request count is marginal against that
+established use. Data-use notes of section 4 apply unchanged: every stored
+record carries its source (`espn`), endpoint, and fetch time, and stale data
+is never presented as fresh.
