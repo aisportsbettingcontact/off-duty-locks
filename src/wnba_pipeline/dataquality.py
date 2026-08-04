@@ -251,6 +251,15 @@ def check_cross_split(last_rows: Sequence[Row], ytd_rows: Sequence[Row],
 # betting_games
 # --------------------------------------------------------------------------- #
 
+# How far back the site's slate query reaches: web.fetch_betting filters to
+# game_date >= CURRENT_DATE - lookback, so rows behind that window never
+# render and their age is irrelevant here. Evaluating them anyway fired
+# betting.stale_rows on every healthy run once the table held more than a day
+# of history, drowning WARN. Keep in step with web.BETTING_LOOKBACK_DAYS
+# (asserted by a test; not imported, so this module stays dependency-free).
+SERVING_LOOKBACK_DAYS = 1
+
+
 def check_betting(rows: Sequence[Row], today: _dt.date,
                   stale_after_days: int = 1) -> list[Finding]:
     """Range, uniqueness and staleness checks for the published slate."""
@@ -298,14 +307,19 @@ def check_betting(rows: Sequence[Row], today: _dt.date,
         gd = r.get("game_date")
         if isinstance(gd, _dt.datetime):
             gd = gd.date()
-        if isinstance(gd, _dt.date) and (today - gd).days > stale_after_days:
-            stale.append(f"{key} ({gd})")
+        # Only rows the site would render can be problematically stale;
+        # history behind the serving window is invisible and expected.
+        if isinstance(gd, _dt.date):
+            age_days = (today - gd).days
+            if stale_after_days < age_days <= SERVING_LOOKBACK_DAYS:
+                stale.append(f"{key} ({gd})")
 
     if stale:
         out.append(Finding(
             WARN, "betting.stale_rows",
-            f"{len(stale)} game(s) are more than {stale_after_days} day(s) old and would "
-            f"still render on the slate: {stale[:5]}",
+            f"{len(stale)} game(s) inside the serving window "
+            f"({SERVING_LOOKBACK_DAYS}-day lookback) are more than "
+            f"{stale_after_days} day(s) old and would render on the slate: {stale[:5]}",
             {"count": len(stale), "sample": stale[:10]}))
     return out
 
