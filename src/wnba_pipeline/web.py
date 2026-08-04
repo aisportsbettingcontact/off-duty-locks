@@ -104,6 +104,51 @@ def fetch_stats_by_team(split: str = "last7") -> dict[str, dict[str, Any]]:
     )}
 
 
+def fetch_status_counts() -> dict[str, Any]:
+    """Freshness aggregates for /api/status and the dashboard stamps.
+
+    ONE round trip of scalar subqueries — the endpoint is polled every 60s by
+    every open dashboard, so it must stay a single cheap SELECT. The betting
+    scope is the same slate window the page renders (``BETTING_LOOKBACK_DAYS``)
+    so the poll and the header stamp always describe the same rows.
+    """
+    return _rows(
+        "SELECT "
+        "(SELECT count(*) FROM betting_games "
+        " WHERE game_date >= CURRENT_DATE - %s::integer) AS betting_rows, "
+        "(SELECT max(fetched_at_utc) FROM betting_games "
+        " WHERE game_date >= CURRENT_DATE - %s::integer) AS betting_fetched_at_utc, "
+        "(SELECT count(*) FROM team_stats WHERE split = 'last7') AS last7_rows, "
+        "(SELECT max(updated_at) FROM team_stats WHERE split = 'last7') AS last7_updated_at, "
+        "(SELECT count(*) FROM team_stats WHERE split = 'ytd') AS ytd_rows, "
+        "(SELECT max(updated_at) FROM team_stats WHERE split = 'ytd') AS ytd_updated_at",
+        (BETTING_LOOKBACK_DAYS, BETTING_LOOKBACK_DAYS),
+    )[0]
+
+
+def _older_iso(a: Any, b: Any) -> str:
+    """The OLDER of two ISO timestamps — pinpoint accuracy never overstates.
+
+    A missing split has no freshness to overstate (the UI shows its empty
+    state instead), so the present value stands alone; both missing -> ""."""
+    vals = [str(v) for v in (a, b) if v]
+    if not vals:
+        return ""
+    if len(vals) == 1:
+        return vals[0]
+
+    def _key(iso: str):
+        try:
+            parsed = _dt.datetime.fromisoformat(iso)
+        except ValueError:  # non-ISO junk never wins the "older" contest
+            return _dt.datetime.max.replace(tzinfo=_dt.timezone.utc)
+        if parsed.tzinfo is None:  # DB timestamps are UTC; keep them comparable
+            parsed = parsed.replace(tzinfo=_dt.timezone.utc)
+        return parsed
+
+    return min(vals, key=_key)
+
+
 def fetch_line_history(game_key: str) -> dict[str, Any] | None:
     """Opening values + ordered snapshots for one game; None if unknown."""
     opening = _rows(
@@ -147,6 +192,38 @@ def _security_headers(response):
 @app.get("/healthz")
 def healthz():
     return "ok", 200
+
+
+@app.get("/api/status")
+def api_status():
+    """Real-time freshness truth: exact per-table timestamps, never cached.
+
+    The dashboard polls this every 60s to re-render its stamps and to reload
+    when strictly newer betting data lands. A database outage still answers a
+    well-formed degraded shape (``db_ok: false``) — never a stack trace."""
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    try:
+        row = fetch_status_counts()
+    except Exception as exc:  # noqa: BLE001 - never leak internals to clients
+        logger.warning("status query failed: %s", exc)
+        resp = jsonify({"now": now, "db_ok": False,
+                        "betting": None, "team_stats": None})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp, 503
+    resp = jsonify({
+        "now": now,
+        "db_ok": True,
+        "betting": {
+            "rows": row["betting_rows"],
+            "fetched_at_utc": row["betting_fetched_at_utc"],
+        },
+        "team_stats": {
+            "last7": {"rows": row["last7_rows"], "updated_at": row["last7_updated_at"]},
+            "ytd": {"rows": row["ytd_rows"], "updated_at": row["ytd_updated_at"]},
+        },
+    })
+    resp.headers["Cache-Control"] = "no-store"  # real-time truth, never cached
+    return resp
 
 
 @app.get("/api/team-stats")
@@ -286,10 +363,23 @@ def index():
             city, nick = _split_team_name(row.get("team_name"), g.get(f"{side}_name"))
             g[f"{side}_city"], g[f"{side}_nick"] = city, nick
     updated = max((str(g.get("fetched_at_utc") or "") for g in games), default="")
+    # Stats stamp: the OLDER of the two splits' max updated_at, so the page
+    # never claims more freshness than its stalest visible split. Isolated
+    # try — a failed stamp query blanks the stamp, it does not take down a
+    # page whose data queries already succeeded.
+    stats_updated = ""
+    if db_ok:
+        try:
+            counts = fetch_status_counts()
+            stats_updated = _older_iso(
+                counts.get("last7_updated_at"), counts.get("ytd_updated_at"))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("status query failed: %s", exc)
     return render_template(
         "dashboard.html",
         games=games, rankings=rankings, db_ok=db_ok,
-        updated_at=updated, home_court=HOME_COURT_POINTS,
+        updated_at=updated, stats_updated_at=stats_updated,
+        home_court=HOME_COURT_POINTS,
         fmt=_dfmt, sfmt=_dsigned, pct=_dpct, ml=_dml, ring_class=_ring_class, logo=_logo_url,
     )
 
