@@ -204,6 +204,34 @@ def test_dashboard_renders_games_and_rankings(client, monkeypatch):
     assert "+110.0" not in html    # ratings are plain, never signed
 
 
+def test_dashboard_splits_names_when_id_namespaces_differ(client, monkeypatch):
+    # PRODUCTION regression: betting rows carry Action Network team ids while
+    # team_stats carries stats.wnba.com ids, so the id join never matches.
+    # The name join must still find the stats row (city/nickname split) and
+    # feed Model v0.
+    monkeypatch.setattr(web, "fetch_betting", lambda: [{
+        "game_key": "2026-08-02:PHX@LVA", "game_date": "2026-08-02",
+        "away_abbr": "PHX", "home_abbr": "LVA",
+        "away_name": "Phoenix Mercury", "home_name": "Las Vegas Aces",
+        "away_team_id": "1340", "home_team_id": "1341",
+        "current_spread": -6.5, "current_total": 169.0,
+    }])
+    monkeypatch.setattr(web, "fetch_stats_by_team", lambda split="last7": {
+        "1611661317": {"offensive_rating": 104.0, "possessions": 80.0,
+                       "wins": 11, "losses": 12, "team_name": "Phoenix Mercury",
+                       "points": 80.9},
+        "1611661319": {"offensive_rating": 110.0, "possessions": 84.0,
+                       "wins": 18, "losses": 4, "team_name": "Las Vegas Aces",
+                       "points": 90.1},
+    })
+    monkeypatch.setattr(web, "fetch_team_stats", lambda split: [])
+    html = client.get("/").data.decode()
+    assert '<span class="tcity">Las Vegas</span> <span class="tnick">Aces</span>' in html
+    assert '<span class="tcity">Phoenix</span> <span class="tnick">Mercury</span>' in html
+    body = client.get("/api/betting").get_json()
+    assert body["games"][0]["model"] is not None
+
+
 def test_dashboard_partial_game_row_never_crashes(client, monkeypatch):
     # A row missing most columns must render em-dashes, not raise.
     monkeypatch.setattr(web, "fetch_betting", lambda: [{
@@ -234,6 +262,26 @@ def test_dashboard_db_error_still_200(client, monkeypatch):
     r = client.get("/")
     assert r.status_code == 200
     assert "temporarily unavailable" in r.data.decode()
+
+
+# Exact header set the after_request hook must emit. Deliberately NO broader
+# Content-Security-Policy: the dashboard template uses inline script/styles,
+# which a script-src/style-src policy would break.
+SECURITY_HEADERS = {
+    "Strict-Transport-Security": "max-age=15552000",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "frame-ancestors 'none'",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+}
+
+
+def test_security_headers_on_every_response(client, monkeypatch):
+    _empty_dashboard(monkeypatch)
+    for path in ("/", "/healthz"):
+        r = client.get(path)
+        for name, value in SECURITY_HEADERS.items():
+            assert r.headers.get(name) == value, f"{path}: {name!r} wrong or missing"
 
 
 def test_jsonable_coercion():

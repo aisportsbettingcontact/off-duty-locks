@@ -209,10 +209,17 @@ def _resolve_url(database_url: str | None) -> str:
 
 
 def connect(database_url: str | None = None):
-    """Open a psycopg connection to ``DATABASE_URL``. Caller closes it."""
+    """Open a psycopg connection to ``DATABASE_URL``. Caller closes it.
+
+    The handshake is bounded by ``ODL_DB_CONNECT_TIMEOUT`` (seconds, default
+    5): without it a blackholed database waits out the ~2-minute OS TCP
+    timeout, pinning a sync gunicorn worker per request — with only two
+    workers that takes down the whole site, /healthz included.
+    """
     import psycopg  # lazy: driver only needed for live DB work
 
-    return psycopg.connect(_resolve_url(database_url))
+    timeout = int(os.environ.get("ODL_DB_CONNECT_TIMEOUT", "5"))
+    return psycopg.connect(_resolve_url(database_url), connect_timeout=timeout)
 
 
 def bootstrap_schema(conn) -> None:

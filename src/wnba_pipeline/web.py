@@ -27,7 +27,7 @@ from typing import Any
 from flask import Flask, jsonify, render_template, request
 
 from wnba_pipeline import db
-from wnba_pipeline.enrich import enrich_games
+from wnba_pipeline.enrich import enrich_games, find_team_stats, stats_by_team_name
 from wnba_pipeline.model import HOME_COURT_POINTS
 
 logger = logging.getLogger("wnba_pipeline.web")
@@ -119,6 +119,25 @@ def fetch_line_history(game_key: str) -> dict[str, Any] | None:
         "WHERE game_key = %s ORDER BY captured_at_utc", (game_key,),
     )
     return {"game_key": game_key, "opening": opening[0], "snapshots": snapshots}
+
+
+@app.after_request
+def _security_headers(response):
+    """Baseline security headers on every response.
+
+    Railway terminates TLS for the domain, so the site is HTTPS-only already —
+    HSTS (180 days) pins browsers to it. nosniff stops MIME sniffing, and
+    X-Frame-Options + frame-ancestors shut off clickjacking (both forms so old
+    and new browsers each honor one). Deliberately NO broader
+    Content-Security-Policy: the dashboard uses inline script/styles, which a
+    script-src/style-src policy would break.
+    """
+    response.headers["Strict-Transport-Security"] = "max-age=15552000"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 
 # --------------------------------------------------------------------------- #
@@ -253,9 +272,14 @@ def index():
     except Exception as exc:  # noqa: BLE001 - render an empty state, not a 500
         logger.warning("dashboard queries failed: %s", exc)
         db_ok = False
+    # Same id-first / name-fallback join as enrich_games: betting rows carry
+    # AN team ids, team_stats carries stats.wnba.com ids (see enrich.py).
+    stats_names = stats_by_team_name(stats)
     for g in games:
         for side in ("away", "home"):
-            row = stats.get(str(g.get(f"{side}_team_id"))) or {}
+            row = find_team_stats(
+                stats, stats_names, g.get(f"{side}_team_id"), g.get(f"{side}_name")
+            ) or {}
             city, nick = _split_team_name(row.get("team_name"), g.get(f"{side}_name"))
             g[f"{side}_city"], g[f"{side}_nick"] = city, nick
     updated = max((str(g.get("fetched_at_utc") or "") for g in games), default="")
