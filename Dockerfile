@@ -12,6 +12,14 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
+# Hash-pinned dependencies first, in their own layer: requirements.lock is
+# compiled by `uv pip compile pyproject.toml --python-version 3.11
+# --generate-hashes`, and --require-hashes makes pip reject anything that does
+# not match it byte-for-byte — the image no longer re-resolves PyPI at build
+# time, and dependency downloads are cached across source-only changes.
+COPY requirements.lock /app/requirements.lock
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
+
 # Copy the whole project. fixtures/ MUST be present at runtime: the expected
 # WNBA team set is resolved from fixtures/expected_teams/<season>.json (it is
 # never hardcoded), and offline/fixture runs read fixtures/sanitized/.
@@ -22,8 +30,9 @@ COPY . /app
 # its fallback team-set fixture via Path(__file__).parents[2]/fixtures, which
 # only lands on /app/fixtures when the source tree stays in place — a normal
 # (non-editable) install would move the package into site-packages and that
-# fallback path would no longer resolve.
-RUN pip install --no-cache-dir -e .
+# fallback path would no longer resolve. --no-deps because every dependency is
+# already installed from the hash-pinned lock above.
+RUN pip install --no-cache-dir -e . --no-deps
 
 # The web app is read-only (SELECT against Postgres) — no volume needed. Railway
 # rejects the Dockerfile VOLUME instruction, so it is intentionally omitted.
