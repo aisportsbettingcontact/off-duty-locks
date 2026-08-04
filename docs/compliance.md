@@ -6,22 +6,88 @@ Owner: Subagent 1. Applies to every component that touches the live source:
 
 ## 1. robots.txt / Terms-of-Service review status
 
-**Status: UNVERIFIED — cannot be checked from this development sandbox.**
-The sandbox's egress policy blocks `*.wnba.com` (proxy 403 / timeouts), so no
-robots.txt or ToS document has been fetched or reviewed yet. This is recorded
-honestly rather than assumed.
+**Status: DRAFT — reviewed 2026-08-04, PENDING OWNER SIGN-OFF; extract
+schedule remains parked until signed.**
 
-The live-smoke workflow (open network) MUST check these exact URLs on its
-first run and record the findings in this file before the pipeline is allowed
-to run on a schedule:
+The technical review below was performed on 2026-08-04 from a residential
+IP — the same access mode any future self-hosted runner would use — with a
+normal desktop-browser User-Agent, exactly two HTTPS GET requests, no
+retries, and no redirects followed (none were issued). This replaces the
+previous UNVERIFIED status (the development sandbox blocked `*.wnba.com`, so
+nothing could be checked from there). Owner sign-off is a legal/business
+judgment on the findings below; it is not implied by this review, and the
+extract schedule stays parked until it is recorded here.
 
-| # | URL | What to record |
+| # | URL | Result 2026-08-04 |
 |---|---|---|
-| 1 | `https://stats.wnba.com/robots.txt` | Any `Disallow` rules matching `/stats/` or `/teams/`; any `Crawl-delay` |
-| 2 | `https://www.wnba.com/robots.txt` | Same, for the parent property |
-| 3 | `https://www.wnba.com/terms-of-use` | Clauses on automated access, data collection, and data reuse |
-| 4 | `https://www.nba.com/termsofuse` | The platform operator's terms (stats.wnba.com runs NBA Digital's shared stats platform; its terms commonly govern) |
-| 5 | `https://www.wnba.com/privacy-policy` | Confirm no personal data is implicated (team aggregates only) |
+| 1 | `https://stats.wnba.com/robots.txt` | HTTP 200 — findings below |
+| 2 | `https://www.wnba.com/robots.txt` | NOT fetched (two-request budget) — still pending |
+| 3 | `https://www.wnba.com/terms-of-use` | HTTP 200, no redirect — findings below |
+| 4 | `https://www.nba.com/termsofuse` | NOT fetched (two-request budget) — still pending |
+| 5 | `https://www.wnba.com/privacy-policy` | NOT fetched (two-request budget) — still pending |
+
+**robots.txt findings (stats.wnba.com).** Verbatim and complete (58 bytes;
+`Last-Modified: Mon, 29 Jun 2026 15:03:58 GMT`):
+
+```text
+Sitemap: https://stats.wnba.com/sitemap.xml
+User-agent: *
+```
+
+The `User-agent: *` record carries **no `Disallow` rules and no
+`Crawl-delay`** — under the robots exclusion protocol an empty record permits
+all paths, including `/stats/*`. robots.txt is not the constraint here.
+
+**Terms of Use findings (www.wnba.com/terms-of-use).** The document has no
+numbered sections; citations use its heading names. Scope: the preamble
+applies the terms to "the digital platforms of the Women's National
+Basketball Association ('WNBA') and each of their respective teams (together,
+the 'League'), including League websites (including, but not limited to
+wnba.com), apps (e.g., mobile apps, tablet apps), and online content
+offerings (collectively, the 'Services')" — stats.wnba.com is a League
+website, so these terms govern the endpoints we poll. The terms "may be
+amended or modified, or new conditions may be imposed, at any time", so this
+review dates itself.
+
+No clause mentions robots, crawlers, scraping, spidering, harvesting, or
+data mining — there is no automated-access prohibition to quote. The
+operative restrictions are on *use* of the data:
+
+- **"OWNERSHIP AND USE RESTRICTIONS":** "No Basketball Content from the
+  Services may be reproduced, republished, uploaded, posted, transmitted,
+  distributed, copied, publicly displayed or otherwise used except as
+  provided in these Terms of Use without the written permission of the
+  Operator" — and "Basketball Content" expressly includes statistics.
+  Downloads are licensed "only for your personal, noncommercial use";
+  using materials "for public or commercial purposes on any other websites"
+  requires written permission.
+- **"NBA STATISTICS"** (directly on point for this pipeline; quoting the
+  clauses that touch us): "(ii) the NBA Statistics may only be used,
+  displayed, or published for legitimate news reporting or private,
+  non-commercial purposes; ... (iv) the NBA Statistics may not be used in
+  connection with any gambling activity (including legal gambling
+  activity); ... (vii) the NBA Statistics may not be used in connection with
+  any website, product, or service that features a database (in any medium
+  or format) of comprehensive, regularly updated statistics from League ...
+  games, competitions, or events without the Operator's express prior
+  consent."
+
+**Honest assessment.** The access-mode question robots.txt answers comes
+back clean: nothing disallows automated retrieval of `/stats/*`, and our
+request budget (section 2) sits far below any plausible burden threshold.
+The ToS is the real constraint, and it cuts against this project's purpose,
+not its polling mechanics: clause (iv) prohibits using WNBA statistics "in
+connection with any gambling activity (including legal gambling activity)",
+clause (ii) limits use to news reporting or private non-commercial purposes,
+and clause (vii) reaches exactly what the serving tables are — a regularly
+updated statistics database — absent "express prior consent". A
+betting-research site publishing these numbers is not a defensible fit for
+(ii), (iv), or (vii) as written. Per the review rule below this is a
+conflict a human must resolve: the schedule stays parked, the section-4
+internal-only restriction stays in force, and the revival path (self-hosted
+residential runner, docs/deployment.md) is a technical plan only — it does
+not cure a use-restriction problem. Licensed data feeds are the alternative
+to evaluate if this data is to appear in a public or commercial product.
 
 Review rule: if any of the above disallows automated access to the `/stats/*`
 endpoints, **the pipeline stops running until a human resolves the

@@ -13,9 +13,20 @@ name: Data Audit
 # split it first proves is numerically identical to another for every shared
 # team, so distinct, legitimate data cannot be destroyed by this workflow.
 #
+# Scheduled daily in-season so production is actually observed — dispatch-only
+# meant the one check able to catch the ytd=last7 mislabel never ran against
+# prod. Scheduled runs observe and report ONLY: `repair`/`apply` are
+# workflow_dispatch inputs, empty on a schedule event, so no repair step can
+# run. A failing audit files a pipeline-alert issue and goes red; it gates
+# nothing else.
+#
 # DATABASE_URL is consumed but never printed.
 
 on:
+  schedule:
+    # 11:00 UTC daily, May–October only: after the ~10:30 scrape tick, so the
+    # audit sees the freshest published rows. Offseason months never trigger.
+    - cron: "0 11 * 5-10 *"
   workflow_dispatch:
     inputs:
       repair:
@@ -39,6 +50,7 @@ on:
 
 permissions:
   contents: read
+  issues: write     # file a pipeline-alert issue when the audit fails
 
 jobs:
   audit:
@@ -124,3 +136,42 @@ jobs:
           echo "validate(before) exit : ${{ steps.before.outputs.exit_code }}"
           echo "repair exit           : ${{ steps.repair.outputs.exit_code || 'not run' }}"
           echo "(exit 4 from validate = the serving tables are inconsistent)"
+
+      - name: Alert on audit failure
+        # Same file-or-comment pattern as extract.yml: one open pipeline-alert
+        # issue collects every alert. /tmp/before.txt is validate-data's stdout
+        # report only — DATABASE_URL is never printed there.
+        if: ${{ steps.before.outputs.exit_code != '0' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let report = '';
+            try { report = fs.readFileSync('/tmp/before.txt','utf8'); } catch (e) {}
+            const code = '${{ steps.before.outputs.exit_code }}';
+            const title = 'pipeline-alert: data audit found inconsistent serving tables';
+            const body = [
+              `Full-scope \`validate-data\` failed with exit code **${code}** (4 = the serving tables are inconsistent).`,
+              '', '```', report, '```',
+              '', 'See docs/runbook.md for triage. Repair runs only via workflow_dispatch (dry by default).'
+            ].join('\n');
+            const label = 'pipeline-alert';
+            const {owner, repo} = context.repo;
+            const existing = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', labels: label });
+            if (existing.data.length > 0) {
+              const n = existing.data[0].number;
+              await github.rest.issues.createComment({owner, repo, issue_number: n, body});
+            } else {
+              await github.rest.issues.create({owner, repo, title, body, labels: [label]});
+            }
+
+      - name: Fail the run on audit failure
+        # Honest gate (repo law 3): inconsistent serving tables must show a red
+        # run, not a green run with findings buried in the summary. MUST stay
+        # after the alert step so both fire. Observation only — this workflow
+        # gates nothing else.
+        if: ${{ steps.before.outputs.exit_code != '0' }}
+        run: |
+          echo "::error::validate-data exited ${{ steps.before.outputs.exit_code }} — the serving tables are inconsistent. See the summary and the pipeline-alert issue."
+          exit 1
