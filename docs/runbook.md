@@ -45,7 +45,15 @@ Failures open/append to a single open issue labeled `pipeline-alert`.
   stored, or fixture. Verify `data/teams/<season>.json` or
   `fixtures/expected_teams/<season>.json` exists and is valid.
 
-## Source reachability (datacenter-IP blocking)
+## Source reachability (stats.wnba.com — PARKED)
+
+> **2026-08-04:** this section describes the parked stats.wnba.com path.
+> Live evidence now shows the block covers unattended clients generally —
+> residential curl, the pipeline's own client run residentially, and a real
+> Chromium session all stall too (`docs/compliance.md` section 1) — so the
+> "run live from a residential machine" options below are retired, not just
+> deferred. Production team stats come from ESPN (`extract.yml`,
+> `wnba-pipeline espn-team-stats`), which GitHub-hosted runners reach fine.
 
 **GitHub-hosted runners cannot reliably reach `stats.wnba.com`.** The stats
 platform's edge (Akamai) blocks cloud/datacenter IP ranges — including the Azure
@@ -99,9 +107,8 @@ raw payload and `failures[]` (each has a stable `code`). The LKG is untouched.
    changed (expansion/relocation) or the source returned a partial set.
    Re-resolve the expected-team set (`teams/`), verify via **Live Smoke**.
 5. `EMPTY_DATASET` **in-season** = real problem; **in the offseason** it is
-   expected — extraction is dispatch-only (`extract.yml`'s cron is parked
-   pending the `docs/compliance.md` sign-off), so an offseason hit means
-   someone ran it by hand.
+   expected — `extract.yml`'s cron is month-gated to May–October, so an
+   offseason hit means someone ran it by hand.
 
 ## LKG rollback (restore a previous verified snapshot)
 

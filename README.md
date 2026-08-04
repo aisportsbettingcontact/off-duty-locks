@@ -34,7 +34,7 @@ the pipeline — validation, storage, serving tables — is unchanged.
 
 ```mermaid
 flowchart TD
-    A[Scheduler: GitHub Actions<br/>dispatch-only, cron parked] --> R[runner.run_once]
+    A[Scheduler: GitHub Actions cron<br/>daily, month-gated — ESPN source] --> R[runner.run_once]
     C[CLI: wnba-pipeline run] --> R
     R --> L{overlap lock}
     L -- held --> LH[LOCK_HELD exit 5]

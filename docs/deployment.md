@@ -78,7 +78,7 @@ against those real captures.
 | Season / season type / last-N / per-mode | CLI flags, `extract.yml` inputs | 2026 / Regular Season / 7 / PerGame |
 | Data root | `--data-root` | `./data` |
 | Freshness window | `--max-age-hours` | 36 |
-| Schedule | `extract.yml` cron | parked — dispatch-only pending `docs/compliance.md` sign-off (was `30 10 * 5-10 *`) |
+| Schedule | `extract.yml` cron | `30 10 * 5-10 *` (daily, May–October; ESPN source — restored 2026-08-04) |
 | Enable switch | repo variable `PIPELINE_ENABLED` | enabled |
 | Retention | `storage.Store.prune` args | 50/50/50/200 |
 
