@@ -74,3 +74,14 @@ def test_parse_helpers_tolerate_signs_arrows_and_pickem():
     assert parse_percent("75%") == 75
     assert parse_percent("▲ 17%") == 17
     assert parse_percent("") is None
+    assert parse_percent(0) == 0 and parse_percent(100) == 100  # inclusive bounds
+
+
+def test_parse_percent_rejects_values_outside_zero_hundred():
+    """A VSIN layout change can put an unrelated number where the badge was
+    (a gamecode, a moneyline price). Anything outside 0..100 is not a
+    percentage — return None rather than publish garbage splits."""
+    assert parse_percent("20260722") is None    # gamecode picked up whole
+    assert parse_percent("-110") is None        # a price, not a split
+    assert parse_percent(101) is None
+    assert parse_percent(-1) is None

@@ -74,13 +74,20 @@ def parse_american_odds(value: object) -> int | None:
 
 def parse_percent(value: object) -> int | None:
     """Integer percent from a VSIN badge like ``"75%"`` or ``"▲ 75%"``.
-    ``None`` when there is no numeric content."""
+    ``None`` when there is no numeric content, or when the number falls
+    outside 0..100 — a layout change can land an unrelated number (a
+    gamecode, a price) in the badge cell, and that must not publish as a
+    split."""
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return int(value)
-    match = re.search(r"\d+", str(value))
-    return int(match.group()) if match else None
+        pct = int(value)
+    else:
+        match = re.search(r"\d+", str(value))
+        if match is None:
+            return None
+        pct = int(match.group())
+    return pct if 0 <= pct <= 100 else None
 
 
 @dataclass
