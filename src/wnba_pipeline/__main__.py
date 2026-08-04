@@ -276,7 +276,8 @@ def _cmd_validate_data(args: argparse.Namespace) -> int:
     now = datetime.now(timezone.utc)
     findings = dq.run_all(by_split, betting, newest, now,
                           expected_teams=expected, last_split=args.last_split,
-                          scope=getattr(args, "scope", "full"))
+                          scope=getattr(args, "scope", "full"),
+                          betting_fresh_hours=getattr(args, "betting_fresh_hours", 6.0))
 
     if getattr(args, "as_json", False):
         for f in findings:
@@ -567,6 +568,10 @@ def build_parser() -> argparse.ArgumentParser:
                       help="betting = gate only the betting checks (the 30-min "
                            "scrape cannot refresh team stats; full validation "
                            "still runs wherever team stats are written)")
+    vd_p.add_argument("--betting-fresh-hours", type=float, default=6.0,
+                      dest="betting_fresh_hours",
+                      help="FAIL when the upcoming slate's newest fetched_at_utc "
+                           "is older than this many hours (default: 6)")
     vd_p.add_argument("--json", action="store_true", dest="as_json",
                       help="emit findings as JSON lines instead of a report")
     vd_p.set_defaults(func=_cmd_validate_data)

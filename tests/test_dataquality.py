@@ -158,7 +158,12 @@ def game(key: str, day: dt.date, **over):
         "game_key": key, "game_date": day,
         "open_spread": -3.5, "current_spread": -4.0, "sharp_spread": -4.0,
         "spread_pct_bets_away": 55, "spread_pct_money_away": 60,
+        "total_pct_bets_over": 48, "total_pct_money_over": 52,
+        "ml_pct_bets_away": 57, "ml_pct_money_away": 63,
         "current_total": 160.5,
+        # Fresh relative to the suite's canonical "now" (2026-07-29 12:00 UTC),
+        # so a clean slate stays clean under the betting freshness gate.
+        "fetched_at_utc": dt.datetime(2026, 7, 29, 11, 30, tzinfo=dt.timezone.utc),
     }
     row.update(over)
     return row
@@ -176,23 +181,121 @@ def test_duplicate_game_key_fails():
     assert "betting.duplicate_key" in codes(findings)
 
 
-def test_percentages_outside_hundred_fail():
+@pytest.mark.parametrize("column", [
+    "spread_pct_bets_away", "spread_pct_money_away",
+    "total_pct_bets_over", "total_pct_money_over",
+    "ml_pct_bets_away", "ml_pct_money_away",
+])
+def test_percentages_outside_hundred_fail(column):
     today = dt.date(2026, 7, 29)
-    findings = dq.check_betting([game("a", today, spread_pct_bets_away=140)], today)
-    assert "betting.pct_out_of_range" in codes(findings)
+    for bad in (140, -5):
+        findings = dq.check_betting([game("a", today, **{column: bad})], today)
+        assert "betting.pct_out_of_range" in codes(findings), f"{column}={bad}"
+        assert fails(findings)
 
 
-def test_stale_games_are_flagged():
+def test_history_outside_the_serving_window_is_not_flagged():
+    """Months of finished games sit in the table forever (upserted by
+    game_key, never deleted) but the site never renders them — web's slate
+    query filters to the lookback window. Flagging them fired
+    betting.stale_rows on every healthy run, which poisoned WARN and made
+    --warn-is-failure unusable."""
     today = dt.date(2026, 7, 29)
     old = game("old", dt.date(2026, 7, 1))
     findings = dq.check_betting([old], today)
+    assert "betting.stale_rows" not in codes(findings)
+
+
+def test_stale_rows_fires_inside_the_serving_window():
+    """A row the site WOULD render that is older than stale_after_days is
+    still worth a human look."""
+    today = dt.date(2026, 7, 29)
+    yesterday = game("y", dt.date(2026, 7, 28))
+    findings = dq.check_betting([yesterday], today, stale_after_days=0)
     assert "betting.stale_rows" in codes(findings)
 
 
 def test_datetime_game_date_is_handled():
     today = dt.date(2026, 7, 29)
-    row = game("a", dt.datetime(2026, 7, 1, 23, 0))
-    assert "betting.stale_rows" in codes(dq.check_betting([row], today))
+    row = game("y", dt.datetime(2026, 7, 28, 23, 0))
+    findings = dq.check_betting([row], today, stale_after_days=0)
+    assert "betting.stale_rows" in codes(findings)
+
+
+def test_serving_window_matches_the_web_slate_query():
+    """dataquality's window must track web.BETTING_LOOKBACK_DAYS: if the
+    slate query's lookback ever grows, the staleness window grows with it."""
+    from wnba_pipeline import web
+    assert dq.SERVING_LOOKBACK_DAYS == web.BETTING_LOOKBACK_DAYS
+
+
+# --------------------------------------------------------------------------- #
+# betting freshness — the scope=betting gate's teeth
+# --------------------------------------------------------------------------- #
+
+NOW = dt.datetime(2026, 7, 29, 12, 0, tzinfo=dt.timezone.utc)
+
+
+def test_fresh_upcoming_slate_passes():
+    rows = [game("a", NOW.date(), fetched_at_utc=NOW - dt.timedelta(minutes=30))]
+    findings = dq.check_betting_freshness(rows, NOW)
+    assert "betting.fetch_ok" in codes(findings)
+    assert not fails(findings)
+
+
+def test_stale_upcoming_slate_fails():
+    """A dead scraper leaves yesterday's fetch on today's games — the one
+    condition the old gate could never see (betting.empty cannot fire once
+    history exists, and check_freshness is team_stats-only)."""
+    rows = [game("a", NOW.date(), fetched_at_utc=NOW - dt.timedelta(hours=20)),
+            game("b", NOW.date() + dt.timedelta(days=1),
+                 fetched_at_utc=NOW - dt.timedelta(hours=21))]
+    findings = dq.check_betting_freshness(rows, NOW)
+    assert "betting.fetch_stale" in codes(findings)
+    assert fails(findings)
+
+
+def test_freshness_threshold_is_configurable():
+    rows = [game("a", NOW.date(), fetched_at_utc=NOW - dt.timedelta(hours=12))]
+    assert fails(dq.check_betting_freshness(rows, NOW))                 # default 6h
+    assert not fails(dq.check_betting_freshness(rows, NOW, fresh_after_hours=24))
+
+
+def test_only_upcoming_rows_gate_freshness():
+    """History's old fetched_at must not fail a healthy run: one fresh
+    upcoming game passes even with months of stale rows behind it."""
+    rows = [game("old", dt.date(2026, 6, 1), fetched_at_utc=NOW - dt.timedelta(days=58)),
+            game("a", NOW.date(), fetched_at_utc=NOW - dt.timedelta(minutes=30))]
+    assert not fails(dq.check_betting_freshness(rows, NOW))
+
+
+def test_no_upcoming_games_is_not_a_freshness_failure():
+    """All-Star/Olympic breaks and the offseason are legitimate empty slates."""
+    rows = [game("old", dt.date(2026, 6, 1), fetched_at_utc=NOW - dt.timedelta(days=58))]
+    findings = dq.check_betting_freshness(rows, NOW)
+    assert "betting.no_upcoming" in codes(findings)
+    assert not fails(findings)
+    assert not fails(dq.check_betting_freshness([], NOW))
+
+
+def test_unknown_fetch_time_fails_closed():
+    """An upcoming slate whose freshness cannot be proven must not pass."""
+    rows = [game("a", NOW.date(), fetched_at_utc=None)]
+    findings = dq.check_betting_freshness(rows, NOW)
+    assert "betting.fetch_unknown" in codes(findings)
+    assert fails(findings)
+
+
+def test_naive_fetch_timestamps_are_treated_as_utc():
+    rows = [game("a", NOW.date(),
+                 fetched_at_utc=dt.datetime(2026, 7, 29, 11, 30))]
+    assert not fails(dq.check_betting_freshness(rows, NOW))
+
+
+def test_datetime_game_date_counts_as_upcoming():
+    rows = [game("a", dt.datetime(2026, 7, 29, 23, 0),
+                 fetched_at_utc=NOW - dt.timedelta(hours=20))]
+    assert "betting.fetch_stale" in codes(dq.check_betting_freshness(rows, NOW))
 
 
 # --------------------------------------------------------------------------- #
@@ -262,6 +365,24 @@ def test_run_all_betting_scope_gates_on_betting_only():
         scope="betting",
     )
     assert all(c.startswith("betting.") for c in codes(findings))
+    assert dq.worst_severity(findings) != dq.FAIL
+
+
+def test_run_all_betting_scope_fails_on_stale_fetch():
+    """The gate's teeth end-to-end: scope=betting goes red when the upcoming
+    slate stopped being fetched, with no team-stats finding required."""
+    now = dt.datetime(2026, 7, 29, 12, 0, tzinfo=dt.timezone.utc)
+    stale = [game("a", now.date(), fetched_at_utc=now - dt.timedelta(hours=20))]
+    findings = dq.run_all({}, stale, None, now, scope="betting")
+    assert "betting.fetch_stale" in codes(findings)
+    assert dq.worst_severity(findings) == dq.FAIL
+
+
+def test_run_all_plumbs_betting_fresh_hours():
+    now = dt.datetime(2026, 7, 29, 12, 0, tzinfo=dt.timezone.utc)
+    stale = [game("a", now.date(), fetched_at_utc=now - dt.timedelta(hours=20))]
+    findings = dq.run_all({}, stale, None, now, scope="betting",
+                          betting_fresh_hours=48.0)
     assert dq.worst_severity(findings) != dq.FAIL
 
 
