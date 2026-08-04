@@ -32,7 +32,8 @@ qa/ docs/ .github/ scripts/`, (c) fixture provenance — every JSON fixture carr
 stable across serializations, (e) idempotency — CLI run twice yields SUCCESS then
 SUCCESS_UNCHANGED with one snapshot, (f) LKG protection — a failing candidate
 leaves `current/` byte-identical and exits 4, (g) automation audit — CI job named
-`CI`, month-gated cron, concurrency group, disable switch, no plaintext secrets,
+`CI`, parked extract cron (dispatch-only), month-gated data-audit cron,
+concurrency group, disable switch, no plaintext secrets,
 (h) docs executability — offline shell blocks in runbook/deployment/README parse
 with `bash -n`, (i) artifact hygiene — `.gitignore` excludes debug material and no
 `.pyc`/`__pycache__`/`.egg-info` are tracked.

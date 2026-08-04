@@ -80,7 +80,7 @@ blocked in the build sandbox. To confirm it:
 | Season / season type / last-N / per-mode | CLI flags, `extract.yml` inputs | 2026 / Regular Season / 7 / PerGame |
 | Data root | `--data-root` | `./data` |
 | Freshness window | `--max-age-hours` | 36 |
-| Schedule | `extract.yml` cron | `30 10 * 5-10 *` |
+| Schedule | `extract.yml` cron | parked — dispatch-only pending `docs/compliance.md` sign-off (was `30 10 * 5-10 *`) |
 | Enable switch | repo variable `PIPELINE_ENABLED` | enabled |
 | Retention | `storage.Store.prune` args | 50/50/50/200 |
 
@@ -141,10 +141,13 @@ Rollout order for a schema change (AGENTS.md law 6):
 
 ### Scrapers (GitHub Actions — `scrape.yml`)
 
-- **betting**: runs every 30 min through the season's pregame/in-play windows,
-  publishing `betting_games` (VSIN splits + Circa sharp line + Action Network
-  lines). VSIN and Action Network are datacenter-reachable, so this works from a
-  GitHub-hosted runner.
+- **betting**: cron `*/30 * * 5-10 *` — every 30 minutes around the full 24-hour
+  clock, May–October — publishing `betting_games` (VSIN splits + Circa sharp
+  line + Action Network lines). VSIN and Action Network are datacenter-reachable,
+  so this works from a GitHub-hosted runner. GitHub delivers `schedule` triggers
+  best-effort, not on the tick: gaps of one to a few hours between runs are
+  normal, which is why the freshness gate (`--betting-fresh-hours`) is
+  measured in hours rather than ticks.
 - **team-stats**: stats.wnba.com blocks datacenter IPs (GitHub-hosted runners
   included), so a live scrape can't run here yet. Run the workflow manually with
   **Seed team_stats from fixture = true** to (re)populate `team_stats` from the

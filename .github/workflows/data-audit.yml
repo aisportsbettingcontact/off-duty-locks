@@ -20,13 +20,20 @@ name: Data Audit
 # run. A failing audit files a pipeline-alert issue and goes red; it gates
 # nothing else.
 #
+# GitHub auto-disables scheduled workflows after 60 days without repository
+# activity (the same trap extract.yml documents): a commit-quiet offseason
+# would silently kill this audit. If it goes quiet, check Actions → Data
+# Audit for the "disabled" banner and re-enable it.
+#
 # DATABASE_URL is consumed but never printed.
 
 on:
   schedule:
-    # 11:00 UTC daily, May–October only: after the ~10:30 scrape tick, so the
-    # audit sees the freshest published rows. Offseason months never trigger.
-    - cron: "0 11 * 5-10 *"
+    # 11:15 UTC daily, May–October only: after the ~10:30 scrape tick, so the
+    # audit sees the freshest published rows, and offset from the :00/:30
+    # scrape schedule so it never races a tick that is mid-write. Offseason
+    # months never trigger.
+    - cron: "15 11 * 5-10 *"
   workflow_dispatch:
     inputs:
       repair:
@@ -69,7 +76,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install
-        run: python -m pip install --upgrade pip -q && pip install --require-hashes -r requirements.lock -q && pip install -e . --no-deps -q
+        # --no-build-isolation: PEP 517 build isolation would download an
+        # un-pinned setuptools; setup-python already ships one.
+        run: python -m pip install --upgrade pip -q && pip install --require-hashes -r requirements.lock -q && pip install -e . --no-deps --no-build-isolation -q
 
       - name: Guard — DATABASE_URL must be set
         run: |
@@ -141,6 +150,13 @@ jobs:
         # Same file-or-comment pattern as extract.yml: one open pipeline-alert
         # issue collects every alert. /tmp/before.txt is validate-data's stdout
         # report only — DATABASE_URL is never printed there.
+        #
+        # The gate fires on ANY nonzero exit, and the classes mean different
+        # things: 4 = the audit RAN and the serving tables are inconsistent;
+        # anything else (2 = config error such as an unreachable database)
+        # means the audit COULD NOT RUN and proved nothing about the data.
+        # The title/body must say which, or a dead DATABASE_URL reads as a
+        # data corruption incident.
         if: ${{ steps.before.outputs.exit_code != '0' }}
         uses: actions/github-script@v7
         with:
@@ -149,9 +165,15 @@ jobs:
             let report = '';
             try { report = fs.readFileSync('/tmp/before.txt','utf8'); } catch (e) {}
             const code = '${{ steps.before.outputs.exit_code }}';
-            const title = 'pipeline-alert: data audit found inconsistent serving tables';
+            const ranAndFailed = code === '4';
+            const title = ranAndFailed
+              ? 'pipeline-alert: data audit found inconsistent serving tables'
+              : `pipeline-alert: data audit could not run (validate-data exit ${code})`;
+            const explanation = ranAndFailed
+              ? `Full-scope \`validate-data\` failed with exit code **${code}** — the audit ran and the serving tables are inconsistent.`
+              : `Full-scope \`validate-data\` exited **${code}** before auditing (2 = config error, e.g. the database was unreachable) — the data was NOT audited, so this says nothing about its consistency.`;
             const body = [
-              `Full-scope \`validate-data\` failed with exit code **${code}** (4 = the serving tables are inconsistent).`,
+              explanation,
               '', '```', report, '```',
               '', 'See docs/runbook.md for triage. Repair runs only via workflow_dispatch (dry by default).'
             ].join('\n');
@@ -173,5 +195,10 @@ jobs:
         # gates nothing else.
         if: ${{ steps.before.outputs.exit_code != '0' }}
         run: |
-          echo "::error::validate-data exited ${{ steps.before.outputs.exit_code }} — the serving tables are inconsistent. See the summary and the pipeline-alert issue."
+          CODE="${{ steps.before.outputs.exit_code }}"
+          if [ "$CODE" = "4" ]; then
+            echo "::error::validate-data exited 4 — the serving tables are inconsistent. See the summary and the pipeline-alert issue."
+          else
+            echo "::error::validate-data exited $CODE — the audit could not run (2 = config error, e.g. unreachable database). See the summary and the pipeline-alert issue."
+          fi
           exit 1

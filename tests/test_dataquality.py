@@ -170,14 +170,13 @@ def game(key: str, day: dt.date, **over):
 
 
 def test_clean_slate_passes():
-    today = dt.date(2026, 7, 29)
-    findings = dq.check_betting([game("a", today)], today)
+    findings = dq.check_betting([game("a", dt.date(2026, 7, 29))])
     assert not fails(findings)
 
 
 def test_duplicate_game_key_fails():
     today = dt.date(2026, 7, 29)
-    findings = dq.check_betting([game("a", today), game("a", today)], today)
+    findings = dq.check_betting([game("a", today), game("a", today)])
     assert "betting.duplicate_key" in codes(findings)
 
 
@@ -189,44 +188,9 @@ def test_duplicate_game_key_fails():
 def test_percentages_outside_hundred_fail(column):
     today = dt.date(2026, 7, 29)
     for bad in (140, -5):
-        findings = dq.check_betting([game("a", today, **{column: bad})], today)
+        findings = dq.check_betting([game("a", today, **{column: bad})])
         assert "betting.pct_out_of_range" in codes(findings), f"{column}={bad}"
         assert fails(findings)
-
-
-def test_history_outside_the_serving_window_is_not_flagged():
-    """Months of finished games sit in the table forever (upserted by
-    game_key, never deleted) but the site never renders them — web's slate
-    query filters to the lookback window. Flagging them fired
-    betting.stale_rows on every healthy run, which poisoned WARN and made
-    --warn-is-failure unusable."""
-    today = dt.date(2026, 7, 29)
-    old = game("old", dt.date(2026, 7, 1))
-    findings = dq.check_betting([old], today)
-    assert "betting.stale_rows" not in codes(findings)
-
-
-def test_stale_rows_fires_inside_the_serving_window():
-    """A row the site WOULD render that is older than stale_after_days is
-    still worth a human look."""
-    today = dt.date(2026, 7, 29)
-    yesterday = game("y", dt.date(2026, 7, 28))
-    findings = dq.check_betting([yesterday], today, stale_after_days=0)
-    assert "betting.stale_rows" in codes(findings)
-
-
-def test_datetime_game_date_is_handled():
-    today = dt.date(2026, 7, 29)
-    row = game("y", dt.datetime(2026, 7, 28, 23, 0))
-    findings = dq.check_betting([row], today, stale_after_days=0)
-    assert "betting.stale_rows" in codes(findings)
-
-
-def test_serving_window_matches_the_web_slate_query():
-    """dataquality's window must track web.BETTING_LOOKBACK_DAYS: if the
-    slate query's lookback ever grows, the staleness window grows with it."""
-    from wnba_pipeline import web
-    assert dq.SERVING_LOOKBACK_DAYS == web.BETTING_LOOKBACK_DAYS
 
 
 # --------------------------------------------------------------------------- #

@@ -251,18 +251,16 @@ def check_cross_split(last_rows: Sequence[Row], ytd_rows: Sequence[Row],
 # betting_games
 # --------------------------------------------------------------------------- #
 
-# How far back the site's slate query reaches: web.fetch_betting filters to
-# game_date >= CURRENT_DATE - lookback, so rows behind that window never
-# render and their age is irrelevant here. Evaluating them anyway fired
-# betting.stale_rows on every healthy run once the table held more than a day
-# of history, drowning WARN. Keep in step with web.BETTING_LOOKBACK_DAYS
-# (asserted by a test; not imported, so this module stays dependency-free).
-SERVING_LOOKBACK_DAYS = 1
+def check_betting(rows: Sequence[Row]) -> list[Finding]:
+    """Range and uniqueness checks for the published slate.
 
-
-def check_betting(rows: Sequence[Row], today: _dt.date,
-                  stale_after_days: int = 1) -> list[Finding]:
-    """Range, uniqueness and staleness checks for the published slate."""
+    A game-date staleness check (``betting.stale_rows``) used to live here,
+    but the 1-day serving window dissolved its premise: a row the site would
+    render cannot also be more than a day old, so the check could never fire.
+    Real staleness — the scraper going dead — is a fetch-time property and is
+    covered by the ``betting.fetch_stale`` FAIL in
+    :func:`check_betting_freshness`.
+    """
     out: list[Finding] = []
     out.append(Finding(INFO, "betting.rows", f"betting_games: {len(rows)} rows",
                        {"rows": len(rows)}))
@@ -278,7 +276,6 @@ def check_betting(rows: Sequence[Row], today: _dt.date,
         out.append(Finding(FAIL, "betting.duplicate_key",
                            f"duplicate game_key values: {dupes}", {"keys": dupes}))
 
-    stale: list[str] = []
     for r in rows:
         key = r.get("game_key")
 
@@ -303,29 +300,18 @@ def check_betting(rows: Sequence[Row], today: _dt.date,
             out.append(Finding(WARN, "betting.total_implausible",
                                f"{key}: current_total={total} outside 100..220",
                                {"game_key": key, "value": total}))
-
-        gd = r.get("game_date")
-        if isinstance(gd, _dt.datetime):
-            gd = gd.date()
-        # Only rows the site would render can be problematically stale;
-        # history behind the serving window is invisible and expected.
-        if isinstance(gd, _dt.date):
-            age_days = (today - gd).days
-            if stale_after_days < age_days <= SERVING_LOOKBACK_DAYS:
-                stale.append(f"{key} ({gd})")
-
-    if stale:
-        out.append(Finding(
-            WARN, "betting.stale_rows",
-            f"{len(stale)} game(s) inside the serving window "
-            f"({SERVING_LOOKBACK_DAYS}-day lookback) are more than "
-            f"{stale_after_days} day(s) old and would render on the slate: {stale[:5]}",
-            {"count": len(stale), "sample": stale[:10]}))
     return out
 
 
+# One authority for the betting-freshness gate's threshold. The CLI flag
+# default (__main__.build_parser), the getattr fallback in _cmd_validate_data,
+# and the two signatures below all read this constant, so they cannot drift.
+DEFAULT_BETTING_FRESH_HOURS = 6.0
+
+
 def check_betting_freshness(rows: Sequence[Row], now: _dt.datetime,
-                            fresh_after_hours: float = 6.0) -> list[Finding]:
+                            fresh_after_hours: float = DEFAULT_BETTING_FRESH_HOURS,
+                            ) -> list[Finding]:
     """FAIL when the upcoming slate has stopped being fetched.
 
     The scope=betting gate needs a check that can actually fire on a dead
@@ -341,8 +327,7 @@ def check_betting_freshness(rows: Sequence[Row], now: _dt.datetime,
 
     ``fetched_at_utc`` is timestamptz, so ages are computed in UTC (naive
     values are assumed UTC, as in :func:`check_freshness`). "Today" is
-    ``now.date()`` — the same derivation :func:`run_all` hands
-    :func:`check_betting` for its staleness window.
+    ``now.date()``.
     """
     if now.tzinfo is None:
         now = now.replace(tzinfo=_dt.timezone.utc)
@@ -428,7 +413,8 @@ def run_all(team_rows_by_split: dict[str, Sequence[Row]],
             expected_teams: Iterable[str] | None = None,
             last_split: str = "last7",
             scope: str = "full",
-            betting_fresh_hours: float = 6.0) -> list[Finding]:
+            betting_fresh_hours: float = DEFAULT_BETTING_FRESH_HOURS,
+            ) -> list[Finding]:
     """Run checks and return all findings, most severe concerns included.
 
     scope="betting" runs only the betting-table checks — the gate for the
@@ -446,7 +432,7 @@ def run_all(team_rows_by_split: dict[str, Sequence[Row]],
             team_rows_by_split.get("ytd", []),
             last_split=last_split,
         )
-    findings += check_betting(betting_rows, now.date())
+    findings += check_betting(betting_rows)
     findings += check_betting_freshness(betting_rows, now, betting_fresh_hours)
     if scope != "betting":
         findings += check_freshness(newest_updated_at, now)

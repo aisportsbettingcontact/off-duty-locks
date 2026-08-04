@@ -42,6 +42,7 @@ from wnba_pipeline.contract import (
     ExtractionParams,
     FreshnessState,
 )
+from wnba_pipeline.dataquality import DEFAULT_BETTING_FRESH_HOURS
 from wnba_pipeline.runner import DEFAULT_MAX_AGE_HOURS, _parse_iso, run_once
 from wnba_pipeline.storage import Store
 
@@ -277,7 +278,8 @@ def _cmd_validate_data(args: argparse.Namespace) -> int:
     findings = dq.run_all(by_split, betting, newest, now,
                           expected_teams=expected, last_split=args.last_split,
                           scope=getattr(args, "scope", "full"),
-                          betting_fresh_hours=getattr(args, "betting_fresh_hours", 6.0))
+                          betting_fresh_hours=getattr(args, "betting_fresh_hours",
+                                                      DEFAULT_BETTING_FRESH_HOURS))
 
     if getattr(args, "as_json", False):
         for f in findings:
@@ -568,10 +570,12 @@ def build_parser() -> argparse.ArgumentParser:
                       help="betting = gate only the betting checks (the 30-min "
                            "scrape cannot refresh team stats; full validation "
                            "still runs wherever team stats are written)")
-    vd_p.add_argument("--betting-fresh-hours", type=float, default=6.0,
+    vd_p.add_argument("--betting-fresh-hours", type=float,
+                      default=DEFAULT_BETTING_FRESH_HOURS,
                       dest="betting_fresh_hours",
                       help="FAIL when the upcoming slate's newest fetched_at_utc "
-                           "is older than this many hours (default: 6)")
+                           "is older than this many hours "
+                           f"(default: {DEFAULT_BETTING_FRESH_HOURS:g})")
     vd_p.add_argument("--json", action="store_true", dest="as_json",
                       help="emit findings as JSON lines instead of a report")
     vd_p.set_defaults(func=_cmd_validate_data)

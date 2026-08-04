@@ -99,8 +99,9 @@ raw payload and `failures[]` (each has a stable `code`). The LKG is untouched.
    changed (expansion/relocation) or the source returned a partial set.
    Re-resolve the expected-team set (`teams/`), verify via **Live Smoke**.
 5. `EMPTY_DATASET` **in-season** = real problem; **in the offseason** it is
-   expected — scheduled runs are month-gated (`extract.yml` cron `5-10`) so this
-   should not fire out of season.
+   expected — extraction is dispatch-only (`extract.yml`'s cron is parked
+   pending the `docs/compliance.md` sign-off), so an offseason hit means
+   someone ran it by hand.
 
 ## LKG rollback (restore a previous verified snapshot)
 
