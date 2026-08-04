@@ -49,6 +49,9 @@ a { color: var(--odl-text); text-decoration: none; }
 .hdr nav a.active { color: var(--odl-text); border-bottom-color: var(--odl-accent); }
 .hdr nav a:hover { color: var(--odl-text); }
 .hdr .updated { margin-left: auto; color: var(--odl-text-muted); font-size: 12px; }
+/* Freshness stamps inside panels (e.g. "Stats as of …") — muted, tabular. */
+.panel .stamp { color: var(--odl-text-muted); font-size: 12px; margin: -6px 0 10px; }
+.panel .stamp:empty { display: none; }
 
 /* Layout */
 .wrap { max-width: 1280px; margin: 0 auto; padding: 20px 24px 40px; }

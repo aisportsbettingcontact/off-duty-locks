@@ -37,7 +37,7 @@ function drawChart() {
   const { points, opening, label } = seriesFor(market);
   const data = points.filter(p => p[1] !== null && p[1] !== undefined);
   if (!data.length) {
-    chartBox.innerHTML = '<p class="empty">No movement history yet. Snapshots start recording every 30 minutes on game days.' +
+    chartBox.innerHTML = '<p class="empty">No movement history yet. Snapshots record on each scrape run (about every 30 minutes as GitHub delivers them).' +
       (opening !== null && opening !== undefined ? ` Opening ${label.toLowerCase()}: <strong class="num">${esc(opening)}</strong>.` : "") + "</p>";
     return;
   }
@@ -154,19 +154,87 @@ document.querySelectorAll(".rank-tabs button").forEach(btn =>
 const m = window.location.hash.match(/game=([^&]+)/);
 if (m) openGame(decodeURIComponent(m[1]));
 
-function renderUpdated() {
-  const el = document.getElementById("updated");
-  if (!el) return;
-  const iso = el.dataset.iso;
-  if (!iso) return;
-  const parsed = Date.parse(iso);
-  if (Number.isNaN(parsed)) return;
-  const mins = Math.max(0, Math.round((Date.now() - parsed) / 60000));
-  el.textContent = mins < 1 ? "Updated just now" : `Updated ${mins} min ago`;
+/* ---- Real-time freshness: precision stamps + /api/status poll ----------- */
+
+// Relative time, precision-graded: seconds under a minute, minutes under an
+// hour, then hours+minutes. Never a vague catch-all label.
+function relTime(ms) {
+  const secs = Math.max(0, Math.floor(ms / 1000));
+  if (secs < 60) return secs + "s ago";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return mins + "m ago";
+  return Math.floor(mins / 60) + "h " + (mins % 60) + "m ago";
 }
 
-renderUpdated();
-setInterval(renderUpdated, 60 * 1000);
+// Stamps render via textContent only — timestamp data never becomes markup.
+function renderStamp(id, label) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const at = Date.parse(el.dataset.iso || "");
+  if (Number.isNaN(at)) { el.textContent = ""; el.removeAttribute("title"); return; }
+  el.textContent = label + " " + relTime(Date.now() - at);
+  el.title = new Date(at).toISOString(); // absolute UTC on hover
+}
 
-// Data republishes on a 30-minute scrape cadence; a full reload is the honest refresh.
-setInterval(() => location.reload(), 30 * 60 * 1000);
+function renderStamps() {
+  renderStamp("updated", "Slate updated");
+  renderStamp("stats-updated", "Stats as of");
+}
+
+// The slate timestamp this page actually rendered from — the reference for
+// the strictly-newer reload comparison below.
+const updatedEl = document.getElementById("updated");
+const renderedSlateMs = Date.parse((updatedEl && updatedEl.dataset.iso) || "");
+
+// Older of the two split timestamps: the stats stamp never overstates the
+// freshness of its stalest split (mirrors _older_iso in web.py).
+function olderIso(a, b) {
+  if (!a || !b) return a || b || "";
+  return Date.parse(a) <= Date.parse(b) ? a : b;
+}
+
+// Reload only when betting data is STRICTLY newer than what this page
+// rendered, at most once per 2 minutes. The guard timestamp lives in
+// sessionStorage so it survives the reload it causes — an in-memory guard
+// would reset on reload and loop.
+function maybeReload(iso) {
+  const fresh = Date.parse(iso || "");
+  if (Number.isNaN(fresh) || Number.isNaN(renderedSlateMs) || fresh <= renderedSlateMs) return;
+  const KEY = "odl-status-reload-at";
+  let last = 0;
+  try { last = Number(sessionStorage.getItem(KEY)) || 0; } catch { /* storage off */ }
+  if (Date.now() - last < 2 * 60 * 1000) return;
+  try { sessionStorage.setItem(KEY, String(Date.now())); } catch { /* storage off */ }
+  location.reload();
+}
+
+async function pollStatus() {
+  let status;
+  try {
+    const r = await fetch("/api/status", { cache: "no-store" });
+    if (!r.ok) return;
+    status = await r.json();
+  } catch { return; }
+  const betting = status && status.betting;
+  const teamStats = status && status.team_stats;
+  if (updatedEl && betting && betting.fetched_at_utc) {
+    updatedEl.dataset.iso = betting.fetched_at_utc;
+  }
+  const statsEl = document.getElementById("stats-updated");
+  if (statsEl && teamStats) {
+    statsEl.dataset.iso = olderIso(
+      teamStats.last7 && teamStats.last7.updated_at,
+      teamStats.ytd && teamStats.ytd.updated_at);
+  }
+  renderStamps();
+  if (betting) maybeReload(betting.fetched_at_utc);
+}
+
+renderStamps();
+setInterval(renderStamps, 1000);    // relative stamps tick every second
+setInterval(pollStatus, 60 * 1000); // a 60s no-store poll IS the honest real-time bound
+
+// Data lands on each scrape run (about every 30 minutes as GitHub delivers
+// them); the status poll above reloads the page as soon as strictly newer
+// betting data exists, so this hard reload is only a last-resort fallback.
+setInterval(() => location.reload(), 60 * 60 * 1000);

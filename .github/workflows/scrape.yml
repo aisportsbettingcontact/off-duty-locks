@@ -15,11 +15,15 @@ name: Scrape + Publish (DB)
 
 on:
   schedule:
-    # Every 30 min around the full 24h clock, season months only (May–Oct).
+    # Twice hourly at :07/:37, season months only (May–Oct). The intended
+    # cadence is unchanged from */30 (every 30 minutes); the offsets sit OFF
+    # GitHub's congested :00/:30 marks, where deliveries observed on
+    # 2026-08-04 arrived 30 minutes to 3.5 hours late. Delivery is still
+    # best-effort — expect a run roughly every 30–90 minutes, not on the tick.
     # Owner directive 2026-08-02: continuous coverage so the line-history
-    # snapshots and the dashboard's 30-min auto-refresh always have fresh data.
+    # snapshots and the dashboard's data-driven refresh always have fresh data.
     # These runs hit VSIN + Action Network only — never stats.wnba.com.
-    - cron: "*/30 * * 5-10 *"
+    - cron: "7,37 * * 5-10 *"
   workflow_dispatch:
     inputs:
       seed_team_stats:

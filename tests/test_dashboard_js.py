@@ -112,3 +112,49 @@ def test_whole_expression_safe_forms_still_pass():
     assert _is_safe('(+v).toFixed(1)')
     assert _is_safe('X(new Date(p[0]).getTime())')
     assert _is_safe('Y(opening) - 6')                        # integer offset
+
+
+# --------------------------------------------------------------------------- #
+# Real-time status layer (static checks — this repo has no JS runner)
+# --------------------------------------------------------------------------- #
+
+def _src() -> str:
+    return DASHBOARD_JS.read_text(encoding="utf-8")
+
+
+def test_status_poll_every_60s_with_r_ok_check():
+    src = _src()
+    assert 'fetch("/api/status"' in src
+    # The audit dinged a fetch without an r.ok check elsewhere — the status
+    # poll must not repeat it: an error response is skipped, not parsed.
+    poll = src.split('fetch("/api/status"', 1)[1][:200]
+    assert "if (!r.ok) return;" in poll
+    assert "setInterval(pollStatus, 60 * 1000)" in src
+
+
+def test_reload_is_data_driven_with_guard_not_blind_30min():
+    src = _src()
+    # The blind 30-minute reload is gone; the fallback hard reload is 60 min.
+    assert "30 * 60 * 1000" not in src
+    assert "60 * 60 * 1000" in src
+    # Data-driven reload: strict increase only, throttled to one per 2 min.
+    assert "2 * 60 * 1000" in src
+    assert "location.reload()" in src
+
+
+def test_stamps_render_precision_graded_relative_time():
+    src = _src()
+    # Graded precision: seconds under a minute, minutes under an hour, then
+    # hours+minutes — never a vague "recently" and no bare "min ago" rounding.
+    assert "s ago" in src and "m ago" in src and "h " in src
+    assert "recently" not in src
+    # Absolute UTC time rides in the title attribute for hover precision.
+    assert ".title =" in src
+    # Both stamps re-render from the same renderer.
+    assert '"updated"' in src and '"stats-updated"' in src
+
+
+def test_no_strict_30min_promise_in_copy():
+    src = _src()
+    assert "every 30 minutes on game days" not in src
+    assert "as GitHub delivers them" in src
