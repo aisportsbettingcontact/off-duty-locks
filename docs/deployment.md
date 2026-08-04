@@ -7,8 +7,11 @@ there was **no pre-existing job runner, database, or Railway configuration** to
 reuse. The only automation pattern present in the repository's history was
 **GitHub Actions**. Following the "smallest compatible pattern" rule:
 
-- **Scheduler:** GitHub Actions `schedule` (cron). No second scheduling system
-  is introduced — there is nothing to reuse and Actions already runs CI here.
+- **Scheduler:** GitHub Actions `schedule` (cron) for the daily jobs (extract,
+  audit), where best-effort delivery is acceptable. The 30-minute **betting**
+  scrape outgrew that: Actions delivered its ticks 30 minutes to 3.5 hours
+  apart, so it runs as a dedicated **Railway cron service** instead
+  (owner-authorized, 2026-08-04 — see *Architecture* below).
 - **Storage:** file-based, committed to the repository under `data/`, plus a
   **Railway Postgres serving layer** the site reads (added later — see
   *Postgres serving layer* below). The committed files remain the source of
@@ -78,25 +81,74 @@ against those real captures.
 | Season / season type / last-N / per-mode | CLI flags, `extract.yml` inputs | 2026 / Regular Season / 7 / PerGame |
 | Data root | `--data-root` | `./data` |
 | Freshness window | `--max-age-hours` | 36 |
-| Schedule | `extract.yml` cron | `30 10 * 5-10 *` (daily, May–October; ESPN source — restored 2026-08-04) |
-| Enable switch | repo variable `PIPELINE_ENABLED` | enabled |
+| Schedule (team stats) | `extract.yml` cron | `30 10 * 5-10 *` (daily, May–October; ESPN source — restored 2026-08-04) |
+| Schedule (betting) | `railway.scrape.json` `cronSchedule` | `*/30 * * * *` (year-round; May–October gate in `betting-cron`) |
+| Enable switch | repo variable `PIPELINE_ENABLED` (Actions) + service variable on the Railway cron | enabled |
 | Retention | `storage.Store.prune` args | 50/50/50/200 |
 
-## Architecture: Railway serves, GitHub Actions scrapes
+## Architecture: Railway runs the site AND the betting cron; Actions runs the daily jobs
 
-One responsibility per platform, so nothing has to be wired up twice:
+Two Railway services plus Postgres in one project, with GitHub Actions kept
+for the jobs where best-effort scheduling is good enough:
 
 | Platform | Job | How |
 |---|---|---|
-| **Railway** | Serve `offdutylocks.com` | `railway.toml` → gunicorn (the web app) + Postgres in the same project |
-| **GitHub Actions** | Scrape + publish the data | `.github/workflows/scrape.yml` → `wnba-pipeline` writes to Postgres via `DATABASE_URL` |
+| **Railway (web service)** | Serve `offdutylocks.com` | `railway.toml` (the default config) → gunicorn (the web app) |
+| **Railway (cron service)** | Betting scrape every 30 min | explicit `railway.scrape.json` → `wnba-pipeline betting-cron`, exact `:00`/`:30` UTC ticks |
+| **GitHub Actions** | Daily ESPN extract, daily full-scope audit, CI, manual backup publish | `extract.yml`, `data-audit.yml`, `ci.yml`, `scrape.yml` (`workflow_dispatch` only) |
 
-**Why this split:** `railway.toml` is the DEFAULT config every Railway service
-reads, so making that default the *web server* means the service that owns the
-domain serves HTTP no matter how it is wired up — a forgotten override fails
-safe (serves the site) instead of running a non-HTTP job and returning the
-`x-railway-fallback` 502. Keeping all scraping in Actions puts both feeds in
-one place, with one schedule surface and one alerting pattern.
+**Why the betting scrape moved back to Railway (owner-authorized, 2026-08-04):**
+GitHub delivers `schedule` triggers best-effort — measured gaps between the
+30-minute betting ticks ran 30 minutes to 3.5 hours, which starves the
+line-history snapshots and the dashboard's 30-minute refresh. Railway cron
+starts the container at each tick on the tick. Railway is the **single**
+scheduler for betting: `scrape.yml` keeps no `schedule:` trigger (two
+schedulers would double-write the same rows; the COALESCE upsert makes that
+race benign, but one scheduler is the design) and stays available as the
+manual backup publish path.
+
+**The fail-safe asymmetry (commit `ab09843` — do not undo it):** the ORIGINAL
+Railway betting cron died because `railway.toml`'s DEFAULT start command
+launched the cron, the web service inherited it, nothing bound `$PORT`, and
+the whole site 502'd. `railway.toml` — the default config **every** Railway
+service reads — therefore serves the site, so a service that forgets its
+config override fails *safe* (serves HTTP, harmless) instead of running a
+non-HTTP job and returning the `x-railway-fallback` 502. The cron runs only
+in a service **explicitly pinned** to `railway.scrape.json` under Settings →
+Config-as-code. Never point the default at a cron.
+
+### The betting cron service (Railway — `railway.scrape.json`)
+
+- **Schedule:** `*/30 * * * *`, year-round. The **season gate lives in code**:
+  outside May–October (UTC) `wnba-pipeline betting-cron` logs one
+  `offseason_skip` JSON line and exits 0 without touching the network or the
+  database, so nobody edits the cron expression twice a year.
+- **One command, one exit code:** `wnba-pipeline betting-cron` runs the
+  betting publish (VSIN + Action Network → `betting_games`) and then the
+  betting-scope `validate-data` gate — the same two gates `scrape.yml` ran as
+  separate steps — and exits nonzero if either fails, so Railway's run
+  history is honest.
+- **Cron semantics:** at each tick Railway starts the container running the
+  start command; the process **must exit** (it does). `restartPolicyType` is
+  `NEVER` — a failed run must show up red, not loop. No healthcheck: a cron
+  container serves nothing.
+- **Expected environment:**
+  - `DATABASE_URL = ${{Postgres.DATABASE_URL}}` — the same **internal**
+    reference variable the web service uses. The cron runs inside Railway's
+    private network, so the public-proxy guard that `scrape.yml` needs does
+    not apply here.
+  - `PIPELINE_ENABLED` — the kill switch, mirroring the Actions repository
+    variable: set `false` on the service to make every tick log
+    `pipeline_disabled` and exit 0.
+
+### Monitoring the cron
+
+Railway's run history for the cron service shows a red run on any failed tick
+(nonzero exit). If ticks stop happening *silently*, the daily full-scope
+audit (`data-audit.yml`) catches it: `betting.fetch_stale` FAILs when the
+upcoming slate's newest `fetched_at_utc` is older than 6 hours, which opens a
+`pipeline-alert` issue. `/api/status` (merged with the real-time status
+layer, PR #41) shows the same freshness live on the site.
 
 ### Postgres serving layer (Railway)
 
@@ -111,43 +163,43 @@ one place, with one schedule surface and one alerting pattern.
    does not resolve there.
 
 `DATABASE_URL` is the only secret. It is injected by Railway (internal
-networking) for the web service and stored as a GitHub Actions secret (public
-URL) for the scrapers. No database credentials are stored in the repository.
+networking) for the web service **and** the betting cron service — both use
+the same `${{Postgres.DATABASE_URL}}` reference variable — and stored as a
+GitHub Actions secret (public URL) for the Actions jobs. No database
+credentials are stored in the repository.
 
 ### Schema changes & rollout order
 
-The serving schema (`src/wnba_pipeline/schema.sql`) is applied by
-`wnba-pipeline db-init`, which runs as the first step of every **Scrape +
-Publish** tick (`scrape.yml` → *Ensure serving schema*). Every statement is
-additive and idempotent (`CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT
-EXISTS`), so re-applying on every tick is safe and there is no separate
-migration system.
+The serving schema (`src/wnba_pipeline/schema.sql`) is self-applying: every
+publisher calls `bootstrap_schema` before writing (so each in-season Railway
+cron tick re-applies it), the manual **Scrape + Publish** dispatch runs
+`wnba-pipeline db-init` as its first step, and `db-init` can be run by hand.
+Every statement is additive and idempotent (`CREATE TABLE IF NOT EXISTS` /
+`CREATE INDEX IF NOT EXISTS`), so re-applying on every tick is safe and there
+is no separate migration system.
 
 Rollout order for a schema change (AGENTS.md law 6):
 
 1. **Merge** the `schema.sql` change — additive only, guarded by
    `IF NOT EXISTS`; never a destructive rewrite of live tables.
-2. **Apply** — the next scheduled scrape tick runs `db-init` against live
-   Postgres. To apply immediately, dispatch **Scrape + Publish** manually or
-   run `wnba-pipeline db-init --database-url "<public url>"` yourself.
+2. **Apply** — the next publishing tick (in season, the Railway betting cron)
+   bootstraps the schema against live Postgres. To apply immediately, dispatch
+   **Scrape + Publish** manually or run
+   `wnba-pipeline db-init --database-url "<public url>"` yourself.
 3. **Then rely on it.** Merge to `main` also deploys the web service, so code
    that reads a new column can go live before a tick has created it — until
    `db-init` runs, those queries fail and the site serves its empty
    state / 503s. Land the schema change first (or dispatch `db-init` right
    after merging), then ship the code that needs it.
 
-### Scrapers (GitHub Actions — `scrape.yml`)
+### Scrapers
 
-- **betting**: cron `7,37 * * 5-10 *` — twice hourly around the full 24-hour
-  clock, May–October — publishing `betting_games` (VSIN splits + Circa sharp
-  line + Action Network lines). The `:07`/`:37` offsets keep the same 30-minute
-  intended cadence while sitting off GitHub's congested `:00`/`:30` marks, where
-  scheduled deliveries were observed arriving 30 minutes to 3.5 hours late.
-  VSIN and Action Network are datacenter-reachable,
-  so this works from a GitHub-hosted runner. GitHub delivers `schedule` triggers
-  best-effort, not on the tick: gaps of one to a few hours between runs are
-  normal, which is why the freshness gate (`--betting-fresh-hours`) is
-  measured in hours rather than ticks.
+- **betting**: the Railway cron service (see *The betting cron service*
+  above) — every 30 minutes on the tick, year-round schedule with the
+  May–October gate in code — publishing `betting_games` (VSIN splits + Circa
+  sharp line + Action Network lines). Manual backup: dispatch **Scrape +
+  Publish** (`scrape.yml`), which runs the same publish + betting-scope gate
+  from a GitHub-hosted runner over the public proxy URL.
 - **team-stats**: runs daily in `extract.yml` (10:30 UTC, May–October) from
   ESPN's public APIs — datacenter-reachable, so GitHub-hosted runners work.
   `wnba-pipeline espn-team-stats` extracts BOTH real splits (`last7` from
@@ -156,7 +208,9 @@ Rollout order for a schema change (AGENTS.md law 6):
   `wnba-pipeline espn-team-stats --database-url "<public url>"` (publishing is
   the default; `--no-publish` skips it). The fixture-seed path in `scrape.yml`
   remains a manual break-glass only.
-- Pause everything with repository variable `PIPELINE_ENABLED=false`.
+- Pause everything: repository variable `PIPELINE_ENABLED=false` (Actions
+  jobs) **and** service variable `PIPELINE_ENABLED=false` on the Railway cron
+  service (its ticks then log `pipeline_disabled` and exit 0).
 
 ## Web service & custom domain (offdutylocks.com)
 
@@ -244,9 +298,12 @@ yet, so it is safe to expose before the first data run.
   published team-stats rows are corrected by the next successful `extract`
   run (upsert per team) or removed with `wnba-pipeline repair-data` when a
   split is provably duplicated.
-- **Stop all collection immediately:** set `PIPELINE_ENABLED=false` (gates both
-  **Extract** and **Scrape + Publish**) or disable the workflows in the Actions
-  tab (`docs/runbook.md`, *Disable / re-enable*).
+- **Stop all collection immediately:** set repository variable
+  `PIPELINE_ENABLED=false` (gates **Extract** and the manual **Scrape +
+  Publish**) *and* service variable `PIPELINE_ENABLED=false` on the Railway
+  betting cron service (its ticks log `pipeline_disabled` and exit 0), or
+  disable the workflows in the Actions tab (`docs/runbook.md`,
+  *Disable / re-enable*).
 
 ## Running everything offline
 
