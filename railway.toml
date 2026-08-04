@@ -9,11 +9,12 @@
 # site) instead of silently running a non-HTTP job and returning 502.
 #
 # Scheduling (owner decision 2026-08-04): the betting scrape runs on Railway
-# again — as the SEPARATE `betting-cron` service pinned to railway.scrape.json,
-# never via this default file (that inheritance is what caused the 502
-# incident above). Team stats publish daily from GitHub Actions
-# (.github/workflows/extract.yml, ESPN source); scrape.yml remains as a
-# dispatch-only manual backup. See docs/deployment.md.
+# again — as a SEPARATE cron service pinned to railway.scrape.json, never via
+# this default file (that inheritance is what caused the 502 incident above;
+# qa/verify.py enforces that this file never names the cron entrypoint).
+# Team stats publish daily from GitHub Actions (.github/workflows/extract.yml,
+# ESPN source); scrape.yml remains as a dispatch-only manual backup. See
+# docs/deployment.md.
 
 [build]
 builder = "DOCKERFILE"
