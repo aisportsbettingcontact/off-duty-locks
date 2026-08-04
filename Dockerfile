@@ -5,7 +5,8 @@
 # deterministic and supplies the start command explicitly. The image also
 # carries the `wnba-pipeline` CLI for ad-hoc use, but the GitHub Actions
 # scrapers do NOT run this image — they pip-install the package directly on
-# the runner (.github/workflows/scrape.yml → `pip install -e "."`).
+# the runner (.github/workflows/scrape.yml → hash-pinned lock, then
+# `pip install -e . --no-deps --no-build-isolation`).
 FROM python:3.11-slim
 
 # The runner emits the run manifest as a single JSON line on stdout and
@@ -33,8 +34,11 @@ COPY . /app
 # only lands on /app/fixtures when the source tree stays in place — a normal
 # (non-editable) install would move the package into site-packages and that
 # fallback path would no longer resolve. --no-deps because every dependency is
-# already installed from the hash-pinned lock above.
-RUN pip install --no-cache-dir -e . --no-deps
+# already installed from the hash-pinned lock above; --no-build-isolation
+# because PEP 517 build isolation would download an un-pinned setuptools —
+# python:3.11-slim already ships one, so the build uses only what the image
+# and the lock provide.
+RUN pip install --no-cache-dir -e . --no-deps --no-build-isolation
 
 # The web app is read-only (SELECT against Postgres) — no volume needed. Railway
 # rejects the Dockerfile VOLUME instruction, so it is intentionally omitted.
