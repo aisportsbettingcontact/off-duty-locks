@@ -8,9 +8,12 @@
 # the dashboard. A missing/forgotten override then fails *safe* (it serves the
 # site) instead of silently running a non-HTTP job and returning 502.
 #
-# The scrapers do NOT run on Railway anymore. They run on GitHub Actions
-# (.github/workflows/scrape.yml), which publishes betting_games + team_stats to
-# this same Postgres via the DATABASE_URL secret. See docs/deployment.md.
+# Scheduling (owner decision 2026-08-04): the betting scrape runs on Railway
+# again — as the SEPARATE `betting-cron` service pinned to railway.scrape.json,
+# never via this default file (that inheritance is what caused the 502
+# incident above). Team stats publish daily from GitHub Actions
+# (.github/workflows/extract.yml, ESPN source); scrape.yml remains as a
+# dispatch-only manual backup. See docs/deployment.md.
 
 [build]
 builder = "DOCKERFILE"
