@@ -138,9 +138,12 @@ Rollout order for a schema change (AGENTS.md law 6):
 
 ### Scrapers (GitHub Actions — `scrape.yml`)
 
-- **betting**: cron `*/30 * * 5-10 *` — every 30 minutes around the full 24-hour
+- **betting**: cron `7,37 * * 5-10 *` — twice hourly around the full 24-hour
   clock, May–October — publishing `betting_games` (VSIN splits + Circa sharp
-  line + Action Network lines). VSIN and Action Network are datacenter-reachable,
+  line + Action Network lines). The `:07`/`:37` offsets keep the same 30-minute
+  intended cadence while sitting off GitHub's congested `:00`/`:30` marks, where
+  scheduled deliveries were observed arriving 30 minutes to 3.5 hours late.
+  VSIN and Action Network are datacenter-reachable,
   so this works from a GitHub-hosted runner. GitHub delivers `schedule` triggers
   best-effort, not on the tick: gaps of one to a few hours between runs are
   normal, which is why the freshness gate (`--betting-fresh-hours`) is
