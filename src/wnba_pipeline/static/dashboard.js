@@ -187,7 +187,9 @@ const updatedEl = document.getElementById("updated");
 const renderedSlateMs = Date.parse((updatedEl && updatedEl.dataset.iso) || "");
 
 // Older of the two split timestamps: the stats stamp never overstates the
-// freshness of its stalest split (mirrors _older_iso in web.py).
+// freshness of its stalest split. (Close cousin of web.py's _older_iso; for
+// an unparseable operand — unreachable with isoformat timestamps — this
+// returns the second operand rather than letting the valid one win.)
 function olderIso(a, b) {
   if (!a || !b) return a || b || "";
   return Date.parse(a) <= Date.parse(b) ? a : b;
@@ -197,9 +199,17 @@ function olderIso(a, b) {
 // rendered, at most once per 2 minutes. The guard timestamp lives in
 // sessionStorage so it survives the reload it causes — an in-memory guard
 // would reset on reload and loop.
+//
+// A page rendered with NO slate stamp (empty betting window, or the degraded
+// db_ok=false render) has renderedSlateMs = NaN. That page must still reload
+// once valid data exists — otherwise the poll keeps restamping "updated Ns
+// ago" over stale empty content until the 60-min fallback. Loop-safe: after
+// the reload the page renders the current window's rows, so the baseline
+// becomes the real timestamp and converges; the 2-min limiter still applies.
 function maybeReload(iso) {
   const fresh = Date.parse(iso || "");
-  if (Number.isNaN(fresh) || Number.isNaN(renderedSlateMs) || fresh <= renderedSlateMs) return;
+  if (Number.isNaN(fresh)) return;
+  if (!Number.isNaN(renderedSlateMs) && fresh <= renderedSlateMs) return;
   const KEY = "odl-status-reload-at";
   let last = 0;
   try { last = Number(sessionStorage.getItem(KEY)) || 0; } catch { /* storage off */ }
