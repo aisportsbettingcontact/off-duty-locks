@@ -4,8 +4,10 @@ The 12 production-readiness gates, each with its verification procedure, evidenc
 source, and current status. Statuses are honest: offline-verifiable gates are
 **PASS**; gates that require reaching the live source are **BLOCKED-sandbox**
 (the build environment's network policy blocks `*.wnba.com`) and must be closed
-by running the **Live Smoke** GitHub Actions workflow. A blocked gate is never
-reported as passed.
+by running the **Live Smoke** workflow from a residential IP or self-hosted
+runner — the stats edge (Akamai) blocks datacenter IPs, so GitHub-hosted runs
+demonstrate the block, not the contract. A blocked gate is never reported as
+passed.
 
 Legend: ✅ PASS · ⛔ BLOCKED-sandbox (needs live run) · 🟡 PARTIAL
 
@@ -19,7 +21,7 @@ Legend: ✅ PASS · ⛔ BLOCKED-sandbox (needs live run) · 🟡 PARTIAL
 | 6 | Failed extraction preserves last-known-good | Establish LKG, feed failing candidate, assert LKG byte-identical + exit 4 | `qa/verify.py` §f; `test_runner.py`, `test_http_challenges.py::test_failed_run_cannot_overwrite_lkg` | ✅ PASS |
 | 7 | Rate limits and timeouts handled safely | Simulate 429/5xx/timeouts, assert bounded retries + Retry-After | `tests/test_http_client.py`, `tests/adversarial/test_http_challenges.py` | ✅ PASS (offline simulation) |
 | 8 | Automation installed and testable | Parse workflows; run offline e2e in CI | `qa/verify.py` §g; `.github/workflows/{ci,extract,live-smoke}.yml`; CI job named `CI` | ✅ PASS |
-| 9 | Live smoke extraction matches official page | Run Live Smoke workflow; compare teams/values to page | `.github/workflows/live-smoke.yml` (not yet executed) | ⛔ BLOCKED-sandbox — run on GitHub runners |
+| 9 | Live smoke extraction matches official page | Run Live Smoke workflow; compare teams/values to page | `.github/workflows/live-smoke.yml` | ⛔ BLOCKED-sandbox — needs residential/self-hosted egress; GitHub-hosted runs demonstrate the block |
 | 10 | Independent verification passes | Run the QA harness | `qa/verify.py`: **9 pass · 0 fail · 0 blocked** (offline sections) | ✅ PASS |
 | 11 | No secrets in code, logs, fixtures, artifacts | Regex secret sweep + log-hygiene test | `qa/verify.py` §b (0 hits); `test_http_challenges.py::test_no_secrets_in_logs` | ✅ PASS |
 | 12 | Rollback and disable procedures documented and tested | Exercise LKG rollback + disable switch | `docs/runbook.md`; `qa/verify.py` §f (LKG restore), §h (doc commands parse) | ✅ PASS |
@@ -30,11 +32,14 @@ Legend: ✅ PASS · ⛔ BLOCKED-sandbox (needs live run) · 🟡 PARTIAL
 - **1 PARTIAL** (gate 2 — parameter mapping is unit-verified; live echo pending).
 - **2 BLOCKED-sandbox** (gates 1 & 9 — the live page↔endpoint correspondence and
   the live smoke match), closable only by running **Live Smoke** where
-  `*.wnba.com` is reachable.
+  `*.wnba.com` is reachable — a residential IP or self-hosted runner, not a
+  GitHub-hosted one (datacenter IPs are Akamai-blocked).
 
 ## Closing the blocked gates
 
-1. Trigger the **Live Smoke** workflow (`workflow_dispatch`).
+1. Run the **Live Smoke** workflow from a residential IP or self-hosted runner
+   (`docs/runbook.md` → *Source reachability*); a GitHub-hosted
+   `workflow_dispatch` only demonstrates the block.
 2. Review `live-smoke-artifacts` → `live_capture_<date>.json` (per-claim report).
 3. Flip confirmed claims in `docs/source-contract.md` to live-verified; update
    gates 1, 2, 9 here with the run URL as evidence.

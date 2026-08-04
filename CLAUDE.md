@@ -18,8 +18,8 @@ Claude Code-specific pointers only.
 | Acceptance gates | `qa/acceptance-gates.md` |
 
 Repo-local skills (also exposed to pi): `.pi/skills/` — pipeline-verify,
-fixture-provenance, railway-ops. Read the relevant one before pipeline
-verification, fixture edits, or Railway work.
+fixture-provenance, railway-ops, qm-harness. Read the relevant one before
+pipeline verification, fixture edits, Railway work, or QM integration.
 
 Verification before claiming done: `python -m pytest -q` ·
 `python3 qa/verify.py --repo-root .` · `python3 qa/pi_harness_audit.py --repo-root .`

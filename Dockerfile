@@ -2,8 +2,10 @@
 #
 # Railway's Railpack builder can't infer a start command for this project
 # ("No start command detected"), so this Dockerfile makes the build
-# deterministic and supplies the start command explicitly. The same image also
-# carries the `wnba-pipeline` CLI, which the GitHub Actions scrapers invoke.
+# deterministic and supplies the start command explicitly. The image also
+# carries the `wnba-pipeline` CLI for ad-hoc use, but the GitHub Actions
+# scrapers do NOT run this image — they pip-install the package directly on
+# the runner (.github/workflows/scrape.yml → `pip install -e "."`).
 FROM python:3.11-slim
 
 # The runner emits the run manifest as a single JSON line on stdout and
