@@ -61,8 +61,11 @@ Nothing internal — all workstreams are integrated and the full suite is green.
 ## What is blocked by the sandbox network policy
 
 The build environment blocks outbound requests to `*.wnba.com` (verified: proxy
-`403` / connection timeout). Therefore the following are **BLOCKED**, not passed,
-and must be run on GitHub-hosted runners (open network) via the **Live Smoke**
+`403` / connection timeout). GitHub-hosted runners are blocked too — the stats
+edge (Akamai) rejects datacenter IPs, so a hosted **Live Smoke** run
+demonstrates the block, not the contract (`docs/runbook.md` → *Source
+reachability*). Therefore the following are **BLOCKED**, not passed, and must
+be run from a residential IP or self-hosted runner via the **Live Smoke**
 workflow:
 
 1. **Live page↔endpoint correspondence** (acceptance gate 1). Confirms the real
@@ -80,7 +83,8 @@ workflow:
 ## Commands to close each pending item
 
 ```bash
-# On GitHub (Actions tab): run the "Live Smoke" workflow (workflow_dispatch).
+# Run the "Live Smoke" workflow on a residential/self-hosted runner (see
+# docs/runbook.md — a GitHub-hosted dispatch only demonstrates the block).
 # Then download the live-smoke-artifacts and:
 #   - review live_capture_<date>.json's claimReport (C01–C17),
 #   - update docs/source-contract.md (flip confirmed claims to live-verified),

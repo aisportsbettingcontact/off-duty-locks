@@ -124,6 +124,23 @@ def test_tables_empty_state(client, monkeypatch):
     assert "No games on the current slate." in html
 
 
+def test_tables_obeys_brand_law(client, monkeypatch):
+    # MASTER.md: one accent #FF5C1C, no second accent (GitHub blue #2f81f7),
+    # RLM shares the accent (never green), Barlow Condensed for display.
+    monkeypatch.setattr(web, "fetch_team_stats",
+                        lambda split: [{"team_name": "Las Vegas Aces",
+                                        "offensive_rating": 110.5}])
+    monkeypatch.setattr(web, "fetch_betting",
+                        lambda: [{"away_abbr": "PHX", "home_abbr": "LA",
+                                  "game_date": "2026-07-22",
+                                  "spread_rlm": True, "total_rlm": None}])
+    html = client.get("/tables").get_data(as_text=True)
+    assert "#FF5C1C" in html
+    assert "2f81f7" not in html.lower()   # the old second accent
+    assert "3fb950" not in html.lower()   # the old green RLM badge
+    assert "Barlow Condensed" in html
+
+
 def test_tables_db_error_renders_warning_not_500(client, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("db down")
