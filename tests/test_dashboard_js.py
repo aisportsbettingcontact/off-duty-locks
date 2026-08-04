@@ -142,6 +142,18 @@ def test_reload_is_data_driven_with_guard_not_blind_30min():
     assert "location.reload()" in src
 
 
+def test_reload_recovers_from_a_nan_baseline():
+    """A page rendered with no slate stamp (empty window / degraded render)
+    must still reload once valid data exists — PR #41's review finding. The
+    guard bails on an invalid POLLED timestamp, but a NaN RENDERED baseline
+    alone must not disable the reload."""
+    src = _src()
+    assert "if (Number.isNaN(fresh)) return;" in src
+    # The old combined bail that froze NaN-baseline pages must not return:
+    assert "Number.isNaN(fresh) || Number.isNaN(renderedSlateMs)" not in src
+    assert "!Number.isNaN(renderedSlateMs) && fresh <= renderedSlateMs" in src
+
+
 def test_stamps_render_precision_graded_relative_time():
     src = _src()
     # Graded precision: seconds under a minute, minutes under an hour, then
