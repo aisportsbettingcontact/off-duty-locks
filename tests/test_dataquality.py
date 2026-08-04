@@ -158,6 +158,8 @@ def game(key: str, day: dt.date, **over):
         "game_key": key, "game_date": day,
         "open_spread": -3.5, "current_spread": -4.0, "sharp_spread": -4.0,
         "spread_pct_bets_away": 55, "spread_pct_money_away": 60,
+        "total_pct_bets_over": 48, "total_pct_money_over": 52,
+        "ml_pct_bets_away": 57, "ml_pct_money_away": 63,
         "current_total": 160.5,
     }
     row.update(over)
@@ -176,10 +178,17 @@ def test_duplicate_game_key_fails():
     assert "betting.duplicate_key" in codes(findings)
 
 
-def test_percentages_outside_hundred_fail():
+@pytest.mark.parametrize("column", [
+    "spread_pct_bets_away", "spread_pct_money_away",
+    "total_pct_bets_over", "total_pct_money_over",
+    "ml_pct_bets_away", "ml_pct_money_away",
+])
+def test_percentages_outside_hundred_fail(column):
     today = dt.date(2026, 7, 29)
-    findings = dq.check_betting([game("a", today, spread_pct_bets_away=140)], today)
-    assert "betting.pct_out_of_range" in codes(findings)
+    for bad in (140, -5):
+        findings = dq.check_betting([game("a", today, **{column: bad})], today)
+        assert "betting.pct_out_of_range" in codes(findings), f"{column}={bad}"
+        assert fails(findings)
 
 
 def test_stale_games_are_flagged():

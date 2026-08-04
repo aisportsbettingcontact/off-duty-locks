@@ -273,7 +273,9 @@ def check_betting(rows: Sequence[Row], today: _dt.date,
     for r in rows:
         key = r.get("game_key")
 
-        for col in ("spread_pct_bets_away", "spread_pct_money_away"):
+        for col in ("spread_pct_bets_away", "spread_pct_money_away",
+                    "total_pct_bets_over", "total_pct_money_over",
+                    "ml_pct_bets_away", "ml_pct_money_away"):
             v = _num(r.get(col))
             if v is not None and not (0.0 <= v <= 100.0):
                 out.append(Finding(FAIL, "betting.pct_out_of_range",
