@@ -462,7 +462,7 @@ def validate_and_normalize(
     records.sort(key=lambda r: (r.team_name.casefold(), r.team_id))
 
     snapshot = Snapshot(
-        source=contract.SOURCE,
+        source=raw.source,   # honest provenance: whichever upstream raw came from
         source_url=raw.url,
         source_endpoint=raw.endpoint,
         season=params.season,

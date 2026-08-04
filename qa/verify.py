@@ -266,16 +266,21 @@ def section_automation(repo: Path, rep: Report) -> None:
     if extract.exists():
         t = extract.read_text()
         checks["extract_concurrency"] = "concurrency:" in t and "wnba-extract" in t
-        # Policy since the compliance gate: extract.yml's cron is PARKED
-        # (dispatch-only) until docs/compliance.md is owner-signed. The old
-        # check ("5-10" in the file) was satisfied by the parked cron QUOTED
-        # in the header comment — a vacuous pass. Assert the actual policy:
-        # no schedule trigger at all.
-        checks["extract_cron_parked"] = "schedule:" not in t
+        # Policy history, kept honest at every step: the cron was PARKED
+        # (dispatch-only, asserted as "no schedule trigger") while the
+        # compliance gate was open. Since the 2026-08-04 owner sign-off and
+        # ESPN source switch the daily cron is LIVE again — so assert a REAL
+        # month-gated schedule trigger (never just the string "5-10"
+        # surviving in a comment, the vacuous pass both eras had to dodge)
+        # and that the job runs the ESPN extractor.
+        checks["extract_month_gated_cron"] = bool(
+            re.search(r'(?m)^\s*schedule:\s*$', t)
+            and re.search(r'-\s*cron:\s*"30 10 \* 5-10 \*"', t))
         checks["extract_disable_switch"] = "PIPELINE_ENABLED" in t
         checks["extract_season_2026"] = "2026" in t
-        for k in ("extract_concurrency", "extract_cron_parked",
-                  "extract_disable_switch"):
+        checks["extract_espn_source"] = "espn-team-stats" in t
+        for k in ("extract_concurrency", "extract_month_gated_cron",
+                  "extract_disable_switch", "extract_espn_source"):
             if not checks[k]:
                 problems.append(f"extract.yml: {k} not satisfied")
     else:

@@ -22,18 +22,7 @@ FIELDS = (
 )
 
 
-def main(argv: list[str]) -> int:
-    path = argv[1] if len(argv) > 1 else "manifest.json"
-    try:
-        with open(path, encoding="utf-8") as fh:
-            manifest = json.load(fh)
-    except FileNotFoundError:
-        print(f"- no manifest produced at `{path}`")
-        return 0
-    except (OSError, json.JSONDecodeError) as exc:
-        print(f"- could not parse manifest `{path}`: {exc}")
-        return 0
-
+def _render(manifest: dict) -> None:
     for key in FIELDS:
         if key in manifest:
             print(f"- **{key}**: {manifest.get(key)}")
@@ -42,6 +31,37 @@ def main(argv: list[str]) -> int:
         print(f"- **validationFailures**: {len(failures)}")
         for f in failures[:10]:
             print(f"  - `{f.get('code')}`: {f.get('message')}")
+
+
+def main(argv: list[str]) -> int:
+    path = argv[1] if len(argv) > 1 else "manifest.json"
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except FileNotFoundError:
+        print(f"- no manifest produced at `{path}`")
+        return 0
+    except OSError as exc:
+        print(f"- could not read manifest `{path}`: {exc}")
+        return 0
+
+    # One JSON object per line: single-run files hold one line, multi-split
+    # commands (espn-team-stats) emit one manifest line per split.
+    manifests = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            manifests.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            print(f"- could not parse manifest line in `{path}`: {exc}")
+    for index, manifest in enumerate(manifests):
+        if len(manifests) > 1:
+            print(f"\n### Split {index + 1} — `{manifest.get('extractionKey')}`")
+        _render(manifest)
+    if not manifests:
+        print(f"- no manifest lines in `{path}`")
     return 0
 
 

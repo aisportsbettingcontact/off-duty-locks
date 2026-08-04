@@ -1,0 +1,139 @@
+{
+ "_provenance": {
+  "synthetic": false,
+  "capturedAtUtc": "2026-08-04T10:30:00Z",
+  "describedBy": "docs/compliance.md#espn",
+  "sourceUrl": "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams",
+  "notes": "Real capture, trimmed: each team keeps only id/displayName/abbreviation/isActive (links, logos, colors removed). 15 teams."
+ },
+ "sports": [
+  {
+   "leagues": [
+    {
+     "teams": [
+      {
+       "team": {
+        "id": "20",
+        "displayName": "Atlanta Dream",
+        "abbreviation": "ATL",
+        "isActive": true
+       }
+      },
+      {
+       "team": {
+        "id": "19",
+        "displayName": "Chicago Sky",
+        "abbreviation": "CHI",
+        "isActive": true
+       }
+      },
+      {
+       "team": {
+        "id": "18",
+        "displayName": "Connecticut Sun",
+        "abbreviation": "CON",
+        "isActive": true
+       }
+      },
+      {
+       "team": {
+        "id": "3",
+        "displayName": "Dallas Wings",
+        "abbreviation": "DAL",
+        "isActive": true
+       }
+      },
+      {
+       "team": {
+        "id": "129689",
+        "displayName": "Golden State Valkyries",
+        "abbreviation": "GS",
+        "isActive": true
+       }
+      },
+      {
+       "team": {
+        "id": "5",
+        "displayName": "Indiana Fever",
+        "abbreviation": "IND",
+        "isActive": true
+       }
+      },
+      {
+       "team": {
+        "id": "17",
+        "displayName": "Las Vegas Aces",
+        "abbreviation": "LV",
+        "isActive": true
+       }
+      },
+      {
+       "team": {
+        "id": "6",
+        "displayName": "Los Angeles Sparks",
+        "abbreviation": "LA",
+        "isActive": true
+       }
+      },
+      {
+       "team": {
+        "id": "8",
+        "displayName": "Minnesota Lynx",
+        "abbreviation": "MIN",
+        "isActive": true
+       }
+      },
+      {
+       "team": {
+        "id": "9",
+        "displayName": "New York Liberty",
+        "abbreviation": "NY",
+        "isActive": true
+       }
+      },
+      {
+       "team": {
+        "id": "11",
+        "displayName": "Phoenix Mercury",
+        "abbreviation": "PHX",
+        "isActive": true
+       }
+      },
+      {
+       "team": {
+        "id": "132052",
+        "displayName": "Portland Fire",
+        "abbreviation": "POR",
+        "isActive": true
+       }
+      },
+      {
+       "team": {
+        "id": "14",
+        "displayName": "Seattle Storm",
+        "abbreviation": "SEA",
+        "isActive": true
+       }
+      },
+      {
+       "team": {
+        "id": "131935",
+        "displayName": "Toronto Tempo",
+        "abbreviation": "TOR",
+        "isActive": true
+       }
+      },
+      {
+       "team": {
+        "id": "16",
+        "displayName": "Washington Mystics",
+        "abbreviation": "WSH",
+        "isActive": true
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

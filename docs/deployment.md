@@ -22,12 +22,15 @@ additive and self-applying — see *Schema changes & rollout order* below.
 
 - Python 3.11+
 - A GitHub repository with Actions enabled.
-- **A non-datacenter egress to `stats.wnba.com` for any live run.** The stats
-  edge (Akamai) blocks cloud/datacenter IPs, so **GitHub-hosted runners cannot
-  reach it** (nor can the dev sandbox). Live verification and scheduled
-  collection must run from a residential IP or a **self-hosted runner** on an
-  allowed network — see `docs/runbook.md` → *Source reachability
-  (datacenter-IP blocking)*. Offline CI (unit + fixture e2e) needs no network.
+- **No special egress.** Team stats come from ESPN's public APIs (owner
+  decision 2026-08-04), which serve datacenter IPs — GitHub-hosted runners
+  work as-is. The old requirement for a residential/self-hosted runner is
+  **retired**: it existed for stats.wnba.com, which proved unreachable for
+  every unattended client — datacenter runners (14 days of `read_timeout`),
+  residential curl, the pipeline's own client run residentially, and a real
+  Chromium session all stall (evidence in `docs/compliance.md` section 1), so
+  a runner move would not have cured it. Offline CI (unit + fixture e2e)
+  needs no network.
 
 ## Deploy from scratch
 
@@ -42,36 +45,31 @@ additive and self-applying — see *Schema changes & rollout order* below.
    the `CI` status check and at least one approving review (already configured on
    this repo).
 3. **Enable the scheduler.** `.github/workflows/extract.yml` runs daily at
-   10:30 UTC, May–October, and on demand via *Run workflow*. It needs:
-   - `permissions: contents: write` (commit accepted data) and `issues: write`
-     (open alerts) — already declared in the workflow.
+   10:30 UTC, May–October, and on demand via *Run workflow*. It extracts BOTH
+   splits (`last7` + `ytd`) from ESPN and publishes them to Postgres, gated by
+   full-scope `validate-data`. It needs:
+   - the `DATABASE_URL` secret (the PUBLIC Railway Postgres URL — same secret
+     `scrape.yml` uses) and `permissions: issues: write` (open alerts) —
+     already declared in the workflow.
    - Repository variable `PIPELINE_ENABLED` — unset or `true` to run, `false` to
      pause. (Settings → Secrets and variables → Actions → Variables.)
 4. **First real extraction.** Trigger **Extract** manually (`workflow_dispatch`).
-   Confirm the run summary shows `status: SUCCESS`, `actualTeamCount ==
-   expectedTeamCount`, and that a commit under `data/` was pushed.
+   Confirm the run summary shows both splits with `status: SUCCESS`,
+   `actualTeamCount == expectedTeamCount`, and a green validate-data section.
 
 No secrets are required: the pipeline uses only the public endpoint with public
 headers. Do not add cookies, tokens, or API keys.
 
-## Live verification (required before trusting live data)
+## Live verification (stats.wnba.com — PARKED)
 
-The source contract (`docs/source-contract.md`) is written from documented
-platform knowledge and is **pending live verification** because `*.wnba.com` is
-blocked in the build sandbox. To confirm it:
-
-1. Run the **Live Smoke** workflow (`workflow_dispatch`) **from a residential
-   IP or self-hosted runner** — GitHub-hosted runners are datacenter-blocked
-   (see *Prerequisites*), so a hosted run demonstrates the block, not the
-   contract. It executes
-   `scripts/capture_live_contract.py` (conservative: ≤5 requests, ≥3s spacing,
-   honors `Retry-After`, aborts on 403) and one live extraction, then uploads
-   sanitized captures as artifacts. Nothing is committed.
-2. Download the `live-smoke-artifacts`, review `live_capture_<date>.json`'s
-   per-claim report, and update `docs/source-contract.md` (flip confirmed claims
-   to live-verified) and `qa/acceptance-gates.md`.
-3. Complete the robots/ToS review listed in `docs/compliance.md` before enabling
-   the daily schedule for ongoing collection.
+The stats.wnba.com source contract (`docs/source-contract.md`) and the **Live
+Smoke** workflow describe the parked source. Live verification there is moot:
+the host is unreachable for every unattended client (4-way evidence in
+`docs/compliance.md` section 1), which is why team stats come from ESPN. The
+ESPN contract was verified live on 2026-08-04 while recording
+`fixtures/espn/` — endpoint shapes, scales, and definitional decisions are
+documented in `src/wnba_pipeline/espn.py` and asserted by `tests/test_espn.py`
+against those real captures.
 
 ## Configuration surface
 
@@ -80,7 +78,7 @@ blocked in the build sandbox. To confirm it:
 | Season / season type / last-N / per-mode | CLI flags, `extract.yml` inputs | 2026 / Regular Season / 7 / PerGame |
 | Data root | `--data-root` | `./data` |
 | Freshness window | `--max-age-hours` | 36 |
-| Schedule | `extract.yml` cron | parked — dispatch-only pending `docs/compliance.md` sign-off (was `30 10 * 5-10 *`) |
+| Schedule | `extract.yml` cron | `30 10 * 5-10 *` (daily, May–October; ESPN source — restored 2026-08-04) |
 | Enable switch | repo variable `PIPELINE_ENABLED` | enabled |
 | Retention | `storage.Store.prune` args | 50/50/50/200 |
 
@@ -97,9 +95,8 @@ One responsibility per platform, so nothing has to be wired up twice:
 reads, so making that default the *web server* means the service that owns the
 domain serves HTTP no matter how it is wired up — a forgotten override fails
 safe (serves the site) instead of running a non-HTTP job and returning the
-`x-railway-fallback` 502. And team-stats can't run on Railway anyway
-(stats.wnba.com blocks datacenter IPs), so keeping all scraping in Actions puts
-both feeds in one place.
+`x-railway-fallback` 502. Keeping all scraping in Actions puts both feeds in
+one place, with one schedule surface and one alerting pattern.
 
 ### Postgres serving layer (Railway)
 
@@ -148,12 +145,14 @@ Rollout order for a schema change (AGENTS.md law 6):
   best-effort, not on the tick: gaps of one to a few hours between runs are
   normal, which is why the freshness gate (`--betting-fresh-hours`) is
   measured in hours rather than ticks.
-- **team-stats**: stats.wnba.com blocks datacenter IPs (GitHub-hosted runners
-  included), so a live scrape can't run here yet. Run the workflow manually with
-  **Seed team_stats from fixture = true** to (re)populate `team_stats` from the
-  committed fixture; for live YTD/Last-7 use a residential or self-hosted runner:
-  `wnba-pipeline run-team-stats --database-url "<public url>"` (publishing is
-  the default; `--no-publish` skips it).
+- **team-stats**: runs daily in `extract.yml` (10:30 UTC, May–October) from
+  ESPN's public APIs — datacenter-reachable, so GitHub-hosted runners work.
+  `wnba-pipeline espn-team-stats` extracts BOTH real splits (`last7` from
+  per-event boxes, `ytd` from season statistics + record) and publishes them,
+  gated by full-scope `validate-data`. Manual fallback:
+  `wnba-pipeline espn-team-stats --database-url "<public url>"` (publishing is
+  the default; `--no-publish` skips it). The fixture-seed path in `scrape.yml`
+  remains a manual break-glass only.
 - Pause everything with repository variable `PIPELINE_ENABLED=false`.
 
 ## Web service & custom domain (offdutylocks.com)
@@ -238,8 +237,10 @@ yet, so it is safe to expose before the first data run.
 ## Rolling back a deploy
 
 - **Code:** `git revert <commit>` and let CI re-run.
-- **A bad accepted snapshot:** see *LKG rollback* in `docs/runbook.md`, or
-  `git revert` the extraction commit (data is version-controlled).
+- **A bad accepted snapshot:** see *LKG rollback* in `docs/runbook.md`. Bad
+  published team-stats rows are corrected by the next successful `extract`
+  run (upsert per team) or removed with `wnba-pipeline repair-data` when a
+  split is provably duplicated.
 - **Stop all collection immediately:** set `PIPELINE_ENABLED=false` (gates both
   **Extract** and **Scrape + Publish**) or disable the workflows in the Actions
   tab (`docs/runbook.md`, *Disable / re-enable*).

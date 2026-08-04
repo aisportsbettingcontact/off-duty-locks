@@ -1,5 +1,17 @@
 # Acceptance Gates — Independent Assessment
 
+> **2026-08-04 — source switch.** Team stats now come from ESPN's public APIs
+> (`src/wnba_pipeline/espn.py`; owner decision recorded in
+> `docs/compliance.md`). The BLOCKED-sandbox gates below (1, 2-live, 9)
+> describe the **parked** stats.wnba.com path and stay blocked-as-written —
+> the host proved unreachable for every unattended client, so they are moot
+> rather than closable. The ESPN path's equivalents are covered offline by
+> `tests/test_espn.py` (golden transforms against real 2026-08-04 captures)
+> and its live contract was verified during that capture session. The daily
+> `extract.yml` schedule is LIVE again, against ESPN only, governed by
+> compliance section "ESPN" — step 4 of "Closing the blocked gates" no longer
+> gates it.
+
 The 12 production-readiness gates, each with its verification procedure, evidence
 source, and current status. Statuses are honest: offline-verifiable gates are
 **PASS**; gates that require reaching the live source are **BLOCKED-sandbox**

@@ -219,6 +219,57 @@ def _cmd_run_team_stats(args: argparse.Namespace) -> int:
     return worst
 
 
+def _cmd_espn_team_stats(args: argparse.Namespace) -> int:
+    """Run BOTH splits from ESPN — Last-N (default 7) and Year-to-Date — and
+    publish each to Postgres. Returns the highest-severity exit code.
+
+    Unlike the parked stats.wnba.com path, both windows are genuinely distinct
+    extractions here: Last-N aggregates per-event boxes, YTD reads the season
+    statistics + record endpoints (see wnba_pipeline.espn). One memoizing
+    client is shared across the splits so the teams list, schedules, and any
+    overlapping event summaries are fetched exactly once, and one expected-team
+    universe drives both the ESPN-name crosswalk and validation. Each split is
+    a full locked run emitting its own manifest JSON line on stdout.
+    """
+    import dataclasses
+
+    from wnba_pipeline import espn
+    from wnba_pipeline.teams import resolve_expected_teams
+
+    publish_fn = _make_publish_fn(args)
+    # No fetcher on purpose: the expected-team set resolves from the stored
+    # set / versioned fixture. The ESPN path never contacts stats.wnba.com.
+    expected = resolve_expected_teams(args.season)
+    client = espn.EspnClient()
+    base = espn.EspnExtractionParams(
+        season=args.season,
+        season_type=args.season_type,
+        last_n_games=args.last_n_games,
+        per_mode=args.per_mode,
+    )
+    windows: list[int] = []
+    for window in (args.last_n_games, 0):
+        if window not in windows:
+            windows.append(window)
+
+    worst = EXIT_OK
+    try:
+        for window in windows:
+            params = dataclasses.replace(base, last_n_games=window)
+            _, code = run_once(
+                params,
+                args.data_root,
+                fetch_fn=lambda p: espn.fetch_team_stats(p, client, expected),
+                resolve_teams_fn=lambda season: expected,
+                max_age_hours=args.max_age_hours,
+                publish_fn=publish_fn,
+            )
+            worst = max(worst, code)
+    finally:
+        client.close()
+    return worst
+
+
 def _cmd_validate_data(args: argparse.Namespace) -> int:
     """Audit the serving tables the site reads. Read-only: SELECTs only.
 
@@ -547,6 +598,22 @@ def build_parser() -> argparse.ArgumentParser:
     sync_p.add_argument("--database-url", default=None,
                         help="Postgres connection string (default: $DATABASE_URL)")
     sync_p.set_defaults(func=_cmd_run_team_stats, publish=True)
+
+    # espn-team-stats: both splits from ESPN's public APIs, publishing each.
+    espn_p = sub.add_parser(
+        "espn-team-stats",
+        help="run Last-N and Year-to-Date splits from ESPN and publish both "
+             "to Postgres (source per owner decision 2026-08-04)",
+    )
+    _add_param_args(espn_p)
+    espn_p.add_argument("--max-age-hours", type=float, default=DEFAULT_MAX_AGE_HOURS,
+                        help=f"LKG freshness window in hours "
+                             f"(default: {DEFAULT_MAX_AGE_HOURS})")
+    espn_p.add_argument("--no-publish", dest="publish", action="store_false",
+                        help="skip the Postgres publish (default: publish)")
+    espn_p.add_argument("--database-url", default=None,
+                        help="Postgres connection string (default: $DATABASE_URL)")
+    espn_p.set_defaults(func=_cmd_espn_team_stats, publish=True)
 
     # db-init: create the serving-layer schema (idempotent).
     db_p = sub.add_parser("db-init", help="create the Postgres serving-layer schema")

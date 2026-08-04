@@ -52,6 +52,12 @@ def _normalize_name(name: Any) -> str:
     return _NON_ALNUM.sub(" ", str(name or "").lower()).strip()
 
 
+# Public name for the join-key normalizer: espn.py uses the same helper to
+# crosswalk ESPN displayNames onto the expected-team universe, and the two
+# callers must never drift apart on what "the same name" means.
+normalize_team_name = _normalize_name
+
+
 def stats_by_team_name(
     stats_by_team_id: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Mapping[str, Any]]:

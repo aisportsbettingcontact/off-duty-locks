@@ -1,0 +1,1915 @@
+{
+ "_provenance": {
+  "synthetic": false,
+  "capturedAtUtc": "2026-08-04T10:30:00Z",
+  "describedBy": "docs/compliance.md#espn",
+  "sourceUrl": "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/20/schedule?season=2026&seasontype=2",
+  "notes": "Real capture, trimmed per event to id/date/name/seasonType/status/competitors. The two completed PRESEASON events (seasonType.type=1) were grafted in verbatim from the same-session unfiltered schedule?season=2026 capture so tests can prove the event-level regular-season filter drops them even if the seasontype request parameter were ignored. 44 regular-season events (29 completed) + 2 completed preseason events."
+ },
+ "requestedSeason": {
+  "year": 2026,
+  "type": 2,
+  "name": "Regular Season",
+  "displayName": "2026"
+ },
+ "season": {
+  "year": 2026,
+  "type": 2,
+  "name": "Regular Season",
+  "displayName": "2026",
+  "half": 1
+ },
+ "team": {
+  "id": "20"
+ },
+ "events": [
+  {
+   "id": "401866517",
+   "date": "2026-04-29T23:00Z",
+   "name": "Atlanta Dream at Chicago Sky",
+   "seasonType": {
+    "id": "1",
+    "type": 1,
+    "name": "Preseason",
+    "abbreviation": "pre"
+   },
+   "competitions": [
+    {
+     "id": "401866517",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "19",
+       "homeAway": "home",
+       "winner": false,
+       "score": {
+        "value": 78.0
+       }
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": true,
+       "score": {
+        "value": 87.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401867795",
+   "date": "2026-05-03T19:00Z",
+   "name": "Washington Mystics at Atlanta Dream",
+   "seasonType": {
+    "id": "1",
+    "type": 1,
+    "name": "Preseason",
+    "abbreviation": "pre"
+   },
+   "competitions": [
+    {
+     "id": "401867795",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": false,
+       "score": {
+        "value": 72.0
+       }
+      },
+      {
+       "id": "16",
+       "homeAway": "away",
+       "winner": true,
+       "score": {
+        "value": 83.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401856899",
+   "date": "2026-05-10T00:00Z",
+   "name": "Atlanta Dream at Minnesota Lynx",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401856899",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "8",
+       "homeAway": "home",
+       "winner": false,
+       "score": {
+        "value": 90.0
+       }
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": true,
+       "score": {
+        "value": 91.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401856901",
+   "date": "2026-05-13T00:00Z",
+   "name": "Atlanta Dream at Dallas Wings",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401856901",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "3",
+       "homeAway": "home",
+       "winner": false,
+       "score": {
+        "value": 72.0
+       }
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": true,
+       "score": {
+        "value": 77.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401856915",
+   "date": "2026-05-17T17:30Z",
+   "name": "Las Vegas Aces at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401856915",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": false,
+       "score": {
+        "value": 84.0
+       }
+      },
+      {
+       "id": "17",
+       "homeAway": "away",
+       "winner": true,
+       "score": {
+        "value": 85.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401856927",
+   "date": "2026-05-22T23:30Z",
+   "name": "Dallas Wings at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401856927",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 86.0
+       }
+      },
+      {
+       "id": "3",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 69.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401856933",
+   "date": "2026-05-24T19:00Z",
+   "name": "Phoenix Mercury at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401856933",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 82.0
+       }
+      },
+      {
+       "id": "11",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 80.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401856940",
+   "date": "2026-05-28T01:00Z",
+   "name": "Atlanta Dream at Minnesota Lynx",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401856940",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "8",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 96.0
+       }
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 81.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401856948",
+   "date": "2026-05-30T02:00Z",
+   "name": "Atlanta Dream at Portland Fire",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401856948",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "132052",
+       "homeAway": "home",
+       "winner": false,
+       "score": {
+        "value": 66.0
+       }
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": true,
+       "score": {
+        "value": 86.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401856955",
+   "date": "2026-06-02T23:30Z",
+   "name": "Connecticut Sun at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401856955",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 91.0
+       }
+      },
+      {
+       "id": "18",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 75.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401856961",
+   "date": "2026-06-04T23:00Z",
+   "name": "Atlanta Dream at Indiana Fever",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401856961",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "5",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 83.0
+       }
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 71.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401856968",
+   "date": "2026-06-06T22:00Z",
+   "name": "Washington Mystics at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401856968",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 109.0
+       }
+      },
+      {
+       "id": "16",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 77.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401856975",
+   "date": "2026-06-09T23:00Z",
+   "name": "Atlanta Dream at Chicago Sky",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401856975",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "19",
+       "homeAway": "home",
+       "winner": false,
+       "score": {
+        "value": 75.0
+       }
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": true,
+       "score": {
+        "value": 82.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401856981",
+   "date": "2026-06-11T23:30Z",
+   "name": "New York Liberty at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401856981",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": false,
+       "score": {
+        "value": 90.0
+       }
+      },
+      {
+       "id": "9",
+       "homeAway": "away",
+       "winner": true,
+       "score": {
+        "value": 104.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401856991",
+   "date": "2026-06-14T19:00Z",
+   "name": "Atlanta Dream at Toronto Tempo",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401856991",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "131935",
+       "homeAway": "home",
+       "winner": false,
+       "score": {
+        "value": 77.0
+       }
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": true,
+       "score": {
+        "value": 102.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857002",
+   "date": "2026-06-18T23:30Z",
+   "name": "Atlanta Dream at Indiana Fever",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857002",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "5",
+       "homeAway": "home",
+       "winner": false,
+       "score": {
+        "value": 101.0
+       }
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": true,
+       "score": {
+        "value": 108.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857006",
+   "date": "2026-06-20T17:00Z",
+   "name": "Indiana Fever at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857006",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 113.0
+       }
+      },
+      {
+       "id": "5",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 96.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857013",
+   "date": "2026-06-22T23:30Z",
+   "name": "Toronto Tempo at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857013",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 94.0
+       }
+      },
+      {
+       "id": "131935",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 87.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857020",
+   "date": "2026-06-25T02:00Z",
+   "name": "Atlanta Dream at Golden State Valkyries",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857020",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "129689",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 77.0
+       }
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 66.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857026",
+   "date": "2026-06-27T02:00Z",
+   "name": "Atlanta Dream at Golden State Valkyries",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857026",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "129689",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 78.0
+       }
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 75.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857029",
+   "date": "2026-06-28T01:00Z",
+   "name": "Atlanta Dream at Seattle Storm",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857029",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "14",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 105.0
+       }
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 90.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857034",
+   "date": "2026-07-02T23:30Z",
+   "name": "Atlanta Dream at Washington Mystics",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857034",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "16",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 81.0
+       }
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 76.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857039",
+   "date": "2026-07-04T17:00Z",
+   "name": "Golden State Valkyries at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857039",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": false,
+       "score": {
+        "value": 83.0
+       }
+      },
+      {
+       "id": "129689",
+       "homeAway": "away",
+       "winner": true,
+       "score": {
+        "value": 88.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857051",
+   "date": "2026-07-10T00:00Z",
+   "name": "Seattle Storm at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857051",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 89.0
+       }
+      },
+      {
+       "id": "14",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 78.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857059",
+   "date": "2026-07-11T20:00Z",
+   "name": "Portland Fire at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857059",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": false,
+       "score": {
+        "value": 92.0
+       }
+      },
+      {
+       "id": "132052",
+       "homeAway": "away",
+       "winner": true,
+       "score": {
+        "value": 102.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857064",
+   "date": "2026-07-13T23:00Z",
+   "name": "Los Angeles Sparks at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857064",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 101.0
+       }
+      },
+      {
+       "id": "6",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 92.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857074",
+   "date": "2026-07-17T23:30Z",
+   "name": "Atlanta Dream at Toronto Tempo",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857074",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "131935",
+       "homeAway": "home",
+       "winner": false,
+       "score": {
+        "value": 92.0
+       }
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": true,
+       "score": {
+        "value": 111.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857081",
+   "date": "2026-07-19T20:00Z",
+   "name": "Chicago Sky at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857081",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 93.0
+       }
+      },
+      {
+       "id": "19",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 91.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857097",
+   "date": "2026-07-30T00:00Z",
+   "name": "Atlanta Dream at Dallas Wings",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857097",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "3",
+       "homeAway": "home",
+       "winner": false,
+       "score": {
+        "value": 81.0
+       }
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": true,
+       "score": {
+        "value": 82.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857102",
+   "date": "2026-07-31T23:30Z",
+   "name": "Seattle Storm at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857102",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": true,
+       "score": {
+        "value": 98.0
+       }
+      },
+      {
+       "id": "14",
+       "homeAway": "away",
+       "winner": false,
+       "score": {
+        "value": 89.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857111",
+   "date": "2026-08-03T23:00Z",
+   "name": "Las Vegas Aces at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857111",
+     "status": {
+      "period": 4,
+      "type": {
+       "id": "3",
+       "name": "STATUS_FINAL",
+       "state": "post",
+       "completed": true
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": false,
+       "score": {
+        "value": 87.0
+       }
+      },
+      {
+       "id": "17",
+       "homeAway": "away",
+       "winner": true,
+       "score": {
+        "value": 109.0
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857115",
+   "date": "2026-08-05T23:00Z",
+   "name": "Phoenix Mercury at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857115",
+     "status": {
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": null
+      },
+      {
+       "id": "11",
+       "homeAway": "away",
+       "winner": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857123",
+   "date": "2026-08-07T23:30Z",
+   "name": "Atlanta Dream at Washington Mystics",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857123",
+     "status": {
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "id": "16",
+       "homeAway": "home",
+       "winner": null
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857132",
+   "date": "2026-08-11T00:00Z",
+   "name": "Toronto Tempo at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857132",
+     "status": {
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": null
+      },
+      {
+       "id": "131935",
+       "homeAway": "away",
+       "winner": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857140",
+   "date": "2026-08-13T23:00Z",
+   "name": "Atlanta Dream at Connecticut Sun",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857140",
+     "status": {
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "id": "18",
+       "homeAway": "home",
+       "winner": null
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857150",
+   "date": "2026-08-16T21:00Z",
+   "name": "Indiana Fever at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857150",
+     "status": {
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": null
+      },
+      {
+       "id": "5",
+       "homeAway": "away",
+       "winner": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857155",
+   "date": "2026-08-19T02:00Z",
+   "name": "Atlanta Dream at Las Vegas Aces",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857155",
+     "status": {
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "id": "17",
+       "homeAway": "home",
+       "winner": null
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857160",
+   "date": "2026-08-21T02:00Z",
+   "name": "Atlanta Dream at Los Angeles Sparks",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857160",
+     "status": {
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "id": "6",
+       "homeAway": "home",
+       "winner": null
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857166",
+   "date": "2026-08-23T02:00Z",
+   "name": "Atlanta Dream at Phoenix Mercury",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857166",
+     "status": {
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "id": "11",
+       "homeAway": "home",
+       "winner": null
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857172",
+   "date": "2026-08-25T02:00Z",
+   "name": "Atlanta Dream at Los Angeles Sparks",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857172",
+     "status": {
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "id": "6",
+       "homeAway": "home",
+       "winner": null
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857180",
+   "date": "2026-08-28T23:30Z",
+   "name": "Portland Fire at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857180",
+     "status": {
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": null
+      },
+      {
+       "id": "132052",
+       "homeAway": "away",
+       "winner": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857186",
+   "date": "2026-08-30T19:00Z",
+   "name": "Minnesota Lynx at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857186",
+     "status": {
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": null
+      },
+      {
+       "id": "8",
+       "homeAway": "away",
+       "winner": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857190",
+   "date": "2026-09-17T23:30Z",
+   "name": "Connecticut Sun at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857190",
+     "status": {
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": null
+      },
+      {
+       "id": "18",
+       "homeAway": "away",
+       "winner": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857199",
+   "date": "2026-09-19T23:00Z",
+   "name": "Chicago Sky at Atlanta Dream",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857199",
+     "status": {
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "id": "20",
+       "homeAway": "home",
+       "winner": null
+      },
+      {
+       "id": "19",
+       "homeAway": "away",
+       "winner": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857206",
+   "date": "2026-09-22T00:00Z",
+   "name": "Atlanta Dream at New York Liberty",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857206",
+     "status": {
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "id": "9",
+       "homeAway": "home",
+       "winner": null
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401857213",
+   "date": "2026-09-24T00:00Z",
+   "name": "Atlanta Dream at New York Liberty",
+   "seasonType": {
+    "id": "2",
+    "type": 2,
+    "name": "Regular Season",
+    "abbreviation": "reg"
+   },
+   "competitions": [
+    {
+     "id": "401857213",
+     "status": {
+      "period": 0,
+      "type": {
+       "id": "1",
+       "name": "STATUS_SCHEDULED",
+       "state": "pre",
+       "completed": false
+      }
+     },
+     "competitors": [
+      {
+       "id": "9",
+       "homeAway": "home",
+       "winner": null
+      },
+      {
+       "id": "20",
+       "homeAway": "away",
+       "winner": null
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
