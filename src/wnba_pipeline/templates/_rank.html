@@ -1,0 +1,64 @@
+{# Shared ranking row. The dashboard preview and the rankings page render the
+   identical component so the two screens stay one product. #}
+
+{% macro rank_row(row, compact=False) %}
+<div class="rank{% if compact %} rank--compact{% endif %}{% if row.rank <= 4 %} rank--top{% endif %}">
+  <span class="rank__no num" aria-hidden="true">{{ '%02d' % row.rank }}</span>
+  {% if row.logo %}
+  <img class="rank__logo" src="{{ row.logo }}" alt="" width="30" height="30"
+       loading="lazy" decoding="async" onerror="this.remove()">
+  {% else %}
+  <span class="rank__logo" aria-hidden="true"></span>
+  {% endif %}
+
+  <span class="rank__id">
+    <span class="rank__name">
+      <span class="visually-hidden">Rank {{ row.rank }}, </span>{{ row.team_name or '—' }}
+    </span>
+    <span class="rank__sub">
+      {% if row.record %}<span>{{ row.record }}</span>{% endif %}
+      {% if row.form_text %}
+      <span class="{{ 'rank__form--up' if row.form_delta > 0 else 'rank__form--down' }}">
+        {{ row.form_text }}
+      </span>
+      {% endif %}
+    </span>
+  </span>
+
+  <span class="rank__primary">
+    <span class="rank__rtg">{{ '%.1f' % row.offensive_rating if row.offensive_rating is not none else '—' }}</span>
+    <span class="rank__track" aria-hidden="true">
+      {% if row.bar_pct is not none %}
+      <span class="rank__fill" style="width: {{ [row.bar_pct, 4] | max }}%"></span>
+      {% endif %}
+    </span>
+    <span class="visually-hidden">offensive rating</span>
+  </span>
+
+  {% if not compact %}
+  <span class="metric">
+    <span class="metric__value num">{{ '%.1f' % row.possessions if row.possessions is not none else '—' }}</span>
+    <span class="metric__label label">Pace</span>
+  </span>
+  <span class="metric">
+    <span class="metric__value num">{{ '%.1f' % row.points if row.points is not none else '—' }}</span>
+    <span class="metric__label label">PTS/G</span>
+  </span>
+  {% endif %}
+</div>
+{% endmacro %}
+
+
+{% macro scale_note(scale, split_label) %}
+{% if scale %}
+<p class="scale-note">
+  Bars compare offensive rating across the {{ split_label }} field only — the
+  scale runs {{ '%.1f' % scale.min }} to {{ '%.1f' % scale.max }} points per 100
+  possessions, not from zero.
+  {%- if scale.form_league_avg is not none %}
+  League-wide recent form is {{ '%+.1f' % scale.form_league_avg }} against season
+  rating, so read each team's figure against that, not against zero.
+  {%- endif %}
+</p>
+{% endif %}
+{% endmacro %}

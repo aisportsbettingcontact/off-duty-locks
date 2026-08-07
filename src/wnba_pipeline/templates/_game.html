@@ -1,0 +1,307 @@
+{# One game = one coherent object. Collapsed: understand the game. Expanded:
+   research it. Every value sits on the row of the team it belongs to, and
+   every label is spelled out — nothing here asks the reader to remember a
+   convention or do arithmetic. #}
+
+{% macro team_cell(side, team, markets) %}
+<th scope="row" class="team-cell">
+  <div class="team">
+    {% if team.logo %}
+    <img class="team__logo" src="{{ team.logo }}" alt="" width="26" height="26"
+         loading="lazy" decoding="async" onerror="this.remove()">
+    {% endif %}
+    <span class="team__id">
+      {# City and season record share one muted line, so the record can never
+         be mistaken for a market value sitting next to the spread column. #}
+      <span class="team__meta">
+        <span class="team__city">{{ team.city or '' }}</span>
+        <span class="team__abbr">{{ team.abbr or '' }}</span>
+        {% if team.record %}<span class="team__record">{{ team.record }}</span>{% endif %}
+      </span>
+      <span class="team__nick">{{ team.nick or team.abbr or '—' }}</span>
+    </span>
+    <span class="visually-hidden">({{ 'away' if side == 'away' else 'home' }} team{% if team.record %}, {{ team.record }} on the season{% endif %})</span>
+  </div>
+</th>
+{% endmacro %}
+
+
+{# The visible value is part of the button's accessible name already, so the
+   hidden text adds only what sight supplies from position: whose number it is,
+   and what activating the cell does. #}
+{% macro market_cell(game, market, value, subject) %}
+<td class="market-cell">
+  {% if value %}
+  <button class="market" type="button"
+          data-game="{{ game.key }}" data-market="{{ market }}">
+    <span class="market__value num">{{ value }}</span>
+    <span class="visually-hidden">{{ subject }}, open {{ market }} analysis</span>
+  </button>
+  {% else %}
+  <span class="market market--empty">
+    <span class="market__value" aria-hidden="true">—</span>
+    <span class="visually-hidden">{{ subject }} not available</span>
+  </span>
+  {% endif %}
+</td>
+{% endmacro %}
+
+
+{% macro signal_chip(sig) %}
+<span class="sig sig--{{ sig.type }}" title="{{ sig.detail }}">
+  <span class="sig__dot" aria-hidden="true"></span>
+  <span class="sig__name">{{ sig.label }}</span>
+  <span class="sig__side">{{ sig.market_label }}{% if sig.side_label %} · {{ sig.side_label }}{% endif %}</span>
+</span>
+{% endmacro %}
+
+
+{% macro movement_block(game) %}
+<section class="block">
+  <div class="block__head"><h3 class="label">Market movement</h3></div>
+  {% if game.movement.spread or game.movement.total %}
+  <div class="move">
+    {% for row in game.movement_rows %}
+    <div class="move__row">
+      <span class="label">{{ row.label }}</span>
+      <span class="move__val">{{ row.value }}</span>
+    </div>
+    {% endfor %}
+    {% if game.movement.spread %}
+    <p class="move__delta">
+      <span class="label">Spread moved</span>
+      <span class="{{ 'muted' if game.movement.spread.delta == 0 else '' }}">{{ game.movement.spread.text }}</span>
+    </p>
+    {% endif %}
+    {% if game.movement.total %}
+    <p class="move__delta">
+      <span class="label">Total moved</span>
+      <span class="{{ 'muted' if game.movement.total.delta == 0 else '' }}">{{ game.movement.total.text }}</span>
+    </p>
+    {% endif %}
+  </div>
+  {% else %}
+  <p class="empty empty--inline">Opening lines have not been recorded for this game, so movement cannot be measured.</p>
+  {% endif %}
+</section>
+{% endmacro %}
+
+
+{% macro splits_block(game) %}
+<section class="block">
+  <div class="block__head"><h3 class="label">Betting splits</h3></div>
+  {% set live = game.splits | selectattr('tickets') | list %}
+  {% if live %}
+  <div class="split">
+    {% for block in live %}
+    <div class="split__group">
+      <div class="block__head">
+        <span class="label">{{ block.market_label }} · tickets</span>
+        {% if block.divergence is not none %}
+        <span class="split__diverge">money differs by {{ block.divergence }} pts</span>
+        {% endif %}
+      </div>
+      {% for row in block.tickets %}
+      {{ bar_row(row, block.tickets) }}
+      {% endfor %}
+      {% if block.money %}
+      <div class="block__head"><span class="label">{{ block.market_label }} · money</span></div>
+      {% for row in block.money %}
+      {{ bar_row(row, block.money) }}
+      {% endfor %}
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty empty--inline">Split data is not available for this game. The VSIN feed did not cover it.</p>
+  {% endif %}
+</section>
+{% endmacro %}
+
+
+{% macro bar_row(row, siblings) %}
+{% set other = (siblings | rejectattr('label', 'equalto', row.label) | list | first) %}
+<div class="split__bar-row">
+  <span class="split__team">{{ row.label }}</span>
+  <span class="split__pct num">{% if row.pct is not none %}{{ row.pct }}%{% else %}—{% endif %}</span>
+  <span class="split__track">
+    {% if row.pct is not none %}
+    <span class="split__fill{% if other and other.pct is not none and row.pct > other.pct %} split__fill--lead{% endif %}"
+          style="width: {{ row.pct }}%"></span>
+    {% endif %}
+  </span>
+</div>
+{% endmacro %}
+
+
+{% macro model_block(game) %}
+<section class="block">
+  <div class="block__head">
+    <h3 class="label">Model v0</h3>
+    {% if game.model and game.model.edge_score is not none %}
+    <span class="edge">
+      <span class="edge__score edge__score--{{ game.model.band }} num">{{ game.model.edge_score_text }}</span>
+      <span class="edge__label label">Edge{% if game.model.capped %} (max){% endif %}</span>
+    </span>
+    {% endif %}
+  </div>
+  {% if game.model %}
+  <div class="model">
+    <div class="model__row">
+      <span class="model__k">Projected spread</span>
+      <span class="model__v">{{ game.model.projected_spread.text if game.model.projected_spread else '—' }}</span>
+    </div>
+    <div class="model__row">
+      <span class="model__k">Market spread</span>
+      <span class="model__v">{{ game.model.market_spread.text if game.model.market_spread else '—' }}</span>
+    </div>
+    {% if game.model.spread_lean %}
+    <div class="model__row">
+      <span class="model__k">Model leans</span>
+      <span class="model__v">{{ game.model.spread_lean }} by {{ game.model.spread_diff_text }}</span>
+    </div>
+    {% endif %}
+    <div class="model__row">
+      <span class="model__k">Projected total</span>
+      <span class="model__v num">{{ game.model.projected_total_text or '—' }}</span>
+    </div>
+    <div class="model__row">
+      <span class="model__k">Market total</span>
+      <span class="model__v num">{{ game.model.market_total_text or '—' }}</span>
+    </div>
+    {% if game.model.total_lean %}
+    <div class="model__row">
+      <span class="model__k">Model leans</span>
+      <span class="model__v">{{ game.model.total_lean }} by {{ game.model.total_diff_text }}</span>
+    </div>
+    {% endif %}
+  </div>
+  <p class="model__note">
+    Model v0 is a deterministic projection from each team's last-7 offensive
+    rating and pace, plus {{ home_court }} points of home court. It is not a
+    trained machine-learning model, and it has no defensive term.
+    {%- if game.model.capped %} The edge score is capped at 10, so this game is
+    at or above the top of the scale rather than exactly 10.{% endif %}
+  </p>
+  {% else %}
+  <p class="empty empty--inline">
+    No projection: last-7 team statistics are incomplete for one or both teams.
+  </p>
+  {% endif %}
+</section>
+{% endmacro %}
+
+
+{% macro signals_block(game) %}
+<section class="block">
+  <div class="block__head"><h3 class="label">Signals</h3></div>
+  {% if game.signals %}
+  <div class="sig-list">
+    {% for sig in game.signals %}
+    <div class="sig-row">
+      {{ signal_chip(sig) }}
+      <p class="sig-row__detail">{{ sig.detail }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty empty--inline">No signal thresholds were met for this game.</p>
+  {% endif %}
+</section>
+{% endmacro %}
+
+
+{% macro game_card(game, home_court) %}
+<article class="game{% if game.is_final %} game--final{% elif game.status_text == 'Live' %} game--live{% endif %}"
+         id="game-{{ game.slug }}" data-game="{{ game.key }}">
+  <div class="game__meta">
+    <span class="game__time">{{ game.time_text or game.date_text or 'Time TBD' }}</span>
+    {% if game.status_text %}<span class="game__status">{{ game.status_text }}</span>{% endif %}
+    <span class="sigs">
+      {% for sig in game.signals[:3] %}{{ signal_chip(sig) }}{% endfor %}
+      {% if game.signals | length > 3 %}
+      <span class="sig sig--more">+{{ game.signals | length - 3 }} more</span>
+      {% elif not game.signals %}
+      <span class="sig sig--none"><span class="sig__dot" aria-hidden="true"></span><span class="sig__name">No signal</span></span>
+      {% endif %}
+    </span>
+    {% if game.model and game.model.edge_score is not none %}
+    <span class="edge">
+      <span class="edge__score edge__score--{{ game.model.band }} num">{{ game.model.edge_score_text }}</span>
+      <span class="edge__label label">Edge</span>
+    </span>
+    {% endif %}
+  </div>
+
+  <table class="game__table">
+    <caption class="visually-hidden">
+      Markets for {{ game.away.full or game.away.abbr }} at {{ game.home.full or game.home.abbr }}
+    </caption>
+    <colgroup>
+      <col><col class="col--market"><col class="col--market"><col class="col--market">
+    </colgroup>
+    <thead>
+      <tr>
+        <th scope="col"><span class="visually-hidden">Team</span></th>
+        <th scope="col" class="label">Spread</th>
+        <th scope="col" class="label">Total</th>
+        <th scope="col" class="label">Moneyline</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="game__row game__row--away">
+        {{ team_cell('away', game.away, game.markets) }}
+        {{ market_cell(game, 'spread', game.markets.spread_away, game.away.short ~ ' spread') }}
+        {{ market_cell(game, 'total', game.markets.total_over, 'over') }}
+        {{ market_cell(game, 'moneyline', game.markets.ml_away, game.away.short ~ ' moneyline') }}
+      </tr>
+      <tr class="game__row game__row--home">
+        {{ team_cell('home', game.home, game.markets) }}
+        {{ market_cell(game, 'spread', game.markets.spread_home, game.home.short ~ ' spread') }}
+        {{ market_cell(game, 'total', game.markets.total_under, 'under') }}
+        {{ market_cell(game, 'moneyline', game.markets.ml_home, game.home.short ~ ' moneyline') }}
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="game__foot">
+    <button class="disclose" type="button" aria-expanded="false"
+            aria-controls="analysis-{{ game.slug }}" data-game="{{ game.key }}">
+      <span>Analysis</span>
+      <span class="disclose__chev" aria-hidden="true"></span>
+    </button>
+    {% if game.books %}<span class="game__books">{{ game.books }}</span>{% endif %}
+  </div>
+
+  <div class="analysis" id="analysis-{{ game.slug }}" hidden>
+    <div class="panelgrid">
+      {{ movement_block(game) }}
+      {{ splits_block(game) }}
+      {{ model_block(game) }}
+    </div>
+
+    {{ signals_block(game) }}
+
+    <section class="block" style="margin-top: var(--space-6)">
+      <div class="block__head">
+        <h3 class="label">Line history</h3>
+        <span class="section__spacer"></span>
+        <span class="seg analysis__tabs" role="tablist" aria-label="Line history market">
+          <button role="tab" type="button" data-market="spread" aria-selected="true"
+                  id="tab-spread-{{ game.slug }}" aria-controls="chart-{{ game.slug }}">Spread</button>
+          <button role="tab" type="button" data-market="total" aria-selected="false" tabindex="-1"
+                  id="tab-total-{{ game.slug }}" aria-controls="chart-{{ game.slug }}">Total</button>
+          <button role="tab" type="button" data-market="moneyline" aria-selected="false" tabindex="-1"
+                  id="tab-moneyline-{{ game.slug }}" aria-controls="chart-{{ game.slug }}">Moneyline</button>
+        </span>
+      </div>
+      <div class="chart-box" id="chart-{{ game.slug }}" role="tabpanel"
+           aria-labelledby="tab-spread-{{ game.slug }}" tabindex="0"></div>
+      {# Scrollable regions must be keyboard-reachable (WCAG 2.1.1). #}
+      <div class="snaps-box" id="snaps-{{ game.slug }}" tabindex="0"
+           role="region" aria-label="Recorded line snapshots"></div>
+    </section>
+  </div>
+</article>
+{% endmacro %}

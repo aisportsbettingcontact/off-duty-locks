@@ -1,140 +1,117 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Off Duty Locks · WNBA Research Dashboard</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ url_for('static', filename='odl.css') }}">
-</head>
-<body>
-<header class="hdr">
-  <div class="mark display">OFF DUTY <em>LOCKS</em></div>
-  <nav>
-    <a class="active" href="/">Dashboard</a>
-    <a href="/tables">Tables</a>
-  </nav>
-  <div class="updated num" id="updated" data-iso="{{ updated_at }}"></div>
-</header>
+{% extends "_base.html" %}
+{% from "_game.html" import game_card %}
+{% from "_rank.html" import rank_row, scale_note %}
 
-<main class="wrap">
-  <h1 class="page-title">WNBA Dashboard</h1>
-  <p class="subtitle">Betting splits · line history · signals · MODEL v0 · power rankings</p>
+{% block title %}WNBA Research Dashboard · Off Duty Locks{% endblock %}
 
-  {% if not db_ok %}
-  <section class="panel"><p class="empty">Data temporarily unavailable. The database is unreachable.</p></section>
+{% block content %}
+<div class="page-head">
+  <h1>WNBA Research Dashboard</h1>
+  <p>Current markets, betting splits, line movement, signals and Model v0
+     analysis for every game on the board.</p>
+</div>
+
+{% if not db_ok %}
+<div class="notice notice--error" role="status">
+  <span aria-hidden="true">■</span>
+  <span>
+    <span class="notice__title">Live data is unavailable.</span>
+    The database could not be reached, so no markets can be shown. Published
+    data is unaffected — this page will fill in as soon as the connection
+    returns.
+  </span>
+</div>
+{% elif stats_stale_hours %}
+<div class="notice" role="status">
+  <span aria-hidden="true">■</span>
+  <span>
+    <span class="notice__title">Team statistics are {{ stats_stale_hours }} hours old.</span>
+    Markets and splits below are current. Model v0 projections and the power
+    rankings are computed from last-7 team statistics that have not refreshed
+    since {{ stats_updated_text }}, so treat those two sections as dated.
+  </span>
+</div>
+{% endif %}
+
+<section class="section" aria-labelledby="slate-h">
+  <div class="section__head">
+    <h2 id="slate-h">Slate</h2>
+    <span class="section__note">{{ game_count }} game{{ '' if game_count == 1 else 's' }} on the board</span>
+  </div>
+
+  {% if groups %}
+    {% for group in groups %}
+    <div class="slate__group">
+      <div class="slate__date">
+        <span class="display">{{ group.label }}</span>
+        {% if group.long_label %}<span class="muted">{{ group.long_label }}</span>{% endif %}
+      </div>
+      {% for game in group.games %}{{ game_card(game, home_court) }}{% endfor %}
+    </div>
+    {% endfor %}
+  {% elif db_ok %}
+    <div class="empty">
+      <p class="empty__title">No games on the board</p>
+      <p>There are no WNBA games in the current window. The slate fills in as
+         soon as the next scrape publishes.</p>
+    </div>
   {% endif %}
+</section>
 
-  <section class="panel">
-    <h2>Today’s Slate</h2>
-    {% if games %}
-    <div class="games-box">
-    <table class="games num">
-      <thead>
-        <tr>
-          <th>Game</th>
-          <th>Spread<br><span class="sub">open · cur · sharp</span></th>
-          <th>Tickets %<br><span class="sub">away / home</span></th>
-          <th>Money %<br><span class="sub">away / home</span></th>
-          <th>Total<br><span class="sub">open · cur · sharp</span></th>
-          <th>O/U %<br><span class="sub">over / under</span></th>
-          <th>ML<br><span class="sub">away / home</span></th>
-          <th>Model v0<br><span class="sub">spread · total</span></th>
-          <th>Edge</th>
-          <th>Signals</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for game in games %}
-        <tr data-game-key="{{ game.game_key }}" tabindex="0" aria-label="Open line history for {{ game.away_name or game.away_abbr }} at {{ game.home_name or game.home_abbr }}">
-          <td class="teams">
-            {% set away_logo = logo(game.away_abbr) %}{% if away_logo %}<img class="logo" src="{{ away_logo }}" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}
-            {% if game.away_city %}<span class="tcity">{{ game.away_city }}</span> {% endif %}<span class="tnick">{{ game.away_nick or "—" }}</span>
-            <span class="at">@</span>
-            {% if game.home_city %}<span class="tcity">{{ game.home_city }}</span> {% endif %}<span class="tnick">{{ game.home_nick or "—" }}</span>
-            {% set home_logo = logo(game.home_abbr) %}{% if home_logo %}<img class="logo" src="{{ home_logo }}" alt="" loading="lazy" onerror="this.style.display='none'">{% endif %}
-          </td>
-          <td>{{ sfmt(game.open_spread) }} · <strong>{{ sfmt(game.current_spread) }}</strong> · {{ sfmt(game.sharp_spread) }}</td>
-          <td>{{ pct(game.spread_pct_bets_away) }} / {{ pct(game.spread_pct_bets_home) }}</td>
-          <td>{{ pct(game.spread_pct_money_away) }} / {{ pct(game.spread_pct_money_home) }}</td>
-          <td>{{ fmt(game.open_total) }} · <strong>{{ fmt(game.current_total) }}</strong> · {{ fmt(game.sharp_total) }}</td>
-          <td>{{ pct(game.total_pct_bets_over) }} / {{ pct(game.total_pct_bets_under) }}</td>
-          <td>{{ ml(game.current_ml_away) }} / {{ ml(game.current_ml_home) }}</td>
-          <td>
-            {% if game.model %}{{ sfmt(game.model.spread) }} · {{ fmt(game.model.total) }}{% else %}<span class="na">—</span>{% endif %}
-          </td>
-          <td>
-            {% if game.model and game.model.edge_score is not none %}
-            <span class="ring {{ ring_class(game.model.edge_score) }}">{{ "%.1f"|format(game.model.edge_score) }}</span>
-            <span class="ring-label">EDGE</span>
-            {% else %}<span class="na">—</span>{% endif %}
-          </td>
-          <td>
-            {% for s in game.signals %}<span class="sig-dot sig-{{ s.type }}" title="{{ s.market }}: {{ s.type }}{% if s.side %} → {{ s.side }}{% endif %}"></span>{% else %}<span class="sig-dot sig-none" title="no clear signal"></span>{% endfor %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+{# Always rendered, even with no rows: the stats stamp is a freshness surface
+   the /api/status poll writes into, so the element has to exist before data
+   arrives or the page can never report team-statistics freshness. #}
+<section class="section" aria-labelledby="ranks-h">
+  <div class="section__head">
+    <h2 id="ranks-h">Offensive Power Rankings</h2>
+    <span class="section__note">Last 7 games</span>
+    <span class="section__spacer"></span>
+    <a class="link-more" href="/rankings">Full rankings →</a>
+  </div>
+  <p class="stamp" id="stats-updated" data-iso="{{ stats_updated_at }}" data-label="Statistics as of"></p>
+  {% if rankings %}
+  <div class="ranks">
+    {% for row in rankings %}{{ rank_row(row, compact=True) }}{% endfor %}
+  </div>
+  {{ scale_note(scale, 'last-7') }}
+  {% elif db_ok %}
+  <p class="empty empty--inline">No team statistics have been published yet.</p>
+  {% endif %}
+</section>
+
+<section class="section">
+  <details class="reading">
+    <summary class="label" style="cursor:pointer; padding: var(--space-3) 0">
+      How to read this page
+    </summary>
+    <div class="panelgrid" style="margin-top: var(--space-4)">
+      <div class="block">
+        <h3 class="label" style="margin-bottom: var(--space-2)">Markets</h3>
+        <p class="muted">Every number sits on the row of the team it belongs to.
+        The spread shown beside a team is that team's own number; the total
+        shows the over on the top row and the under below it; moneylines are
+        American odds. Books are DraftKings for the public line and Circa for
+        the sharp line.</p>
+      </div>
+      <div class="block">
+        <h3 class="label" style="margin-bottom: var(--space-2)">Signals</h3>
+        <p class="muted">
+        <strong>Sharp Money</strong> — money share sits 15+ points away from
+        ticket share. <strong>Public Heavy</strong> — 70%+ of tickets on one
+        side. <strong>Reverse Line Move</strong> — the line moved against the
+        ticket majority. <strong>Conflict</strong> — sharp money and the line
+        move disagree. <strong>Model Edge</strong> — Model v0 differs from the
+        market by more than 1.5 points of spread or 2.0 of total.</p>
+      </div>
+      <div class="block">
+        <h3 class="label" style="margin-bottom: var(--space-2)">Model v0 and Edge</h3>
+        <p class="muted">Model v0 projects each game from last-7 offensive
+        rating and pace plus {{ home_court }} points of home court. It is a
+        published formula, not a trained model, and it carries no defensive
+        term — so it disagrees with the market often. Edge scores that
+        disagreement from 0 to 10 and stops at 10.</p>
+      </div>
     </div>
-    {% else %}
-    <p class="empty">No games on today’s slate.</p>
-    {% endif %}
-  </section>
-
-  <section class="panel detail" id="detail" hidden>
-    <h2 id="detail-title">Line History</h2>
-    <div class="tabs" role="tablist">
-      <button data-market="spread" class="active">Spread</button>
-      <button data-market="total">Total</button>
-      <button data-market="moneyline">Moneyline</button>
-    </div>
-    <div class="chart-box" id="chart"></div>
-    <div id="snaps"></div>
-  </section>
-
-  <section class="panel">
-    <h2>Signal Legend</h2>
-    <div class="legend">
-      <span><span class="sig-dot sig-sharp-money"></span> Sharp Money: money % sits 15+ points off ticket %</span>
-      <span><span class="sig-dot sig-model-edge"></span> Model Edge: MODEL v0 disagrees with the market</span>
-      <span><span class="sig-dot sig-public-heavy"></span> Public Heavy: 70%+ of tickets on one side</span>
-      <span><span class="sig-dot sig-rlm"></span> Reverse Line Move: the line moved against the ticket majority</span>
-      <span><span class="sig-dot sig-conflict"></span> Warning / Conflict: sharp money and the line move point opposite ways</span>
-      <span><span class="sig-dot sig-none"></span> No Clear Signal</span>
-      <span class="display">MODEL v0</span>
-      <span>projects each game from Last-7 offensive ratings and pace, plus {{ home_court }} home court. A formula, not a trained model. EDGE scores its disagreement with the market.</span>
-    </div>
-  </section>
-
-  <section class="panel">
-    <h2>Offensive Power Rankings</h2>
-    <div class="stamp num" id="stats-updated" data-iso="{{ stats_updated_at }}"></div>
-    <div class="rank-tabs" role="tablist">
-      <button data-split="last7" class="active">Last 7 Games</button>
-      <button data-split="ytd">Year to Date</button>
-    </div>
-    <table class="ranks num" id="ranks">
-      <thead><tr><th>Rank</th><th>Team</th><th>Off Rtg</th><th>Est. Poss</th><th>PTS/G</th><th>Record</th></tr></thead>
-      <tbody>
-        {% for team in rankings %}
-        <tr>
-          <td class="rank">{{ loop.index }}</td>
-          <td>{{ team.team_name }}</td>
-          <td>{{ fmt(team.offensive_rating) }}</td>
-          <td>{{ fmt(team.possessions) }}</td>
-          <td>{{ fmt(team.points) }}</td>
-          <td>{{ team.wins }}-{{ team.losses }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="6" class="empty">No team stats published yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
-</main>
-
-<script src="{{ url_for('static', filename='dashboard.js') }}"></script>
-</body>
-</html>
+  </details>
+</section>
+{% endblock %}

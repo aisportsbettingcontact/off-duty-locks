@@ -164,8 +164,13 @@ def test_dashboard_renders_with_brand_copy(client, monkeypatch):
     html = r.data.decode()
     assert r.status_code == 200
     assert "OFF DUTY" in html and "LOCKS" in html
-    assert "MODEL v0" in html
-    assert "Signal Legend" in html
+    # The model surface is named, and the signal vocabulary is explained on the
+    # page rather than left to a colour key.
+    assert "Model v0" in html
+    assert "How to read this page" in html
+    for signal in ("Sharp Money", "Public Heavy", "Reverse Line Move",
+                   "Conflict", "Model Edge"):
+        assert signal in html, f"{signal} is never explained to the reader"
 
 
 def test_dashboard_renders_games_and_rankings(client, monkeypatch):
@@ -193,14 +198,16 @@ def test_dashboard_renders_games_and_rankings(client, monkeypatch):
     ])
     html = client.get("/").data.decode()
     assert "Offensive Power Rankings" in html
-    # City muted, nickname bolded, abbreviations gone from the cell.
-    assert '<span class="tcity">Las Vegas</span> <span class="tnick">Aces</span>' in html
-    assert '<span class="tcity">Phoenix</span> <span class="tnick">Mercury</span>' in html
-    assert 'class="abbr"' not in html
+    # City on the muted line, nickname carrying identity.
+    assert '<span class="team__city">Las Vegas</span>' in html
+    assert '<span class="team__nick">Aces</span>' in html
+    assert '<span class="team__city">Phoenix</span>' in html
+    assert '<span class="team__nick">Mercury</span>' in html
     assert "phx.png" in html and "lv.png" in html  # logos still keyed by abbr
-    assert "-7.0" in html          # spread stays signed
+    assert "-7.0" in html          # away spread stays signed
+    assert "+7.0" in html          # and the home side is its exact negation
     assert "+169.0" not in html    # totals are plain, never signed
-    assert "169.0" in html
+    assert "O 169.0" in html and "U 169.0" in html   # each side is labelled
     assert "+110.0" not in html    # ratings are plain, never signed
 
 
@@ -226,8 +233,10 @@ def test_dashboard_splits_names_when_id_namespaces_differ(client, monkeypatch):
     })
     monkeypatch.setattr(web, "fetch_team_stats", lambda split: [])
     html = client.get("/").data.decode()
-    assert '<span class="tcity">Las Vegas</span> <span class="tnick">Aces</span>' in html
-    assert '<span class="tcity">Phoenix</span> <span class="tnick">Mercury</span>' in html
+    assert '<span class="team__city">Las Vegas</span>' in html
+    assert '<span class="team__nick">Aces</span>' in html
+    assert '<span class="team__city">Phoenix</span>' in html
+    assert '<span class="team__nick">Mercury</span>' in html
     body = client.get("/api/betting").get_json()
     assert body["games"][0]["model"] is not None
 
@@ -261,12 +270,15 @@ def test_dashboard_db_error_still_200(client, monkeypatch):
     monkeypatch.setattr(web, "fetch_team_stats", boom)
     r = client.get("/")
     assert r.status_code == 200
-    assert "temporarily unavailable" in r.data.decode()
+    # A friendly, specific outage state — never a 500, never a stack trace.
+    assert "Live data is unavailable" in r.data.decode()
 
 
-# Exact header set the after_request hook must emit. Deliberately NO broader
-# Content-Security-Policy: the dashboard template uses inline script/styles,
-# which a script-src/style-src policy would break.
+# Exact header set the after_request hook must emit. The frame-ancestors-only
+# CSP is the legacy /tables page's constraint: that page still builds its HTML
+# with an inline <style> and an inline <script>. The dashboard and rankings
+# pages carry no inline script or style at all (asserted below), so a stricter
+# script-src policy becomes available the moment /tables is retired.
 SECURITY_HEADERS = {
     "Strict-Transport-Security": "max-age=15552000",
     "X-Content-Type-Options": "nosniff",
@@ -290,3 +302,218 @@ def test_jsonable_coercion():
     assert web._jsonable(datetime.datetime(2026, 7, 22, 12, 0, 0)) == "2026-07-22T12:00:00"
     assert web._jsonable("x") == "x"
     assert web._jsonable(None) is None
+
+
+# --------------------------------------------------------------------------- #
+# Research interface: game object, market matrix, rankings page
+# --------------------------------------------------------------------------- #
+
+GAME_ROW = {
+    "game_key": "2026-08-07:LA@MIN", "game_date": "2026-08-07",
+    "start_time": "2026-08-08T01:00:00+00:00", "status": "scheduled",
+    "away_abbr": "LA", "home_abbr": "MIN",
+    "away_name": "Los Angeles Sparks", "home_name": "Minnesota Lynx",
+    "away_team_id": "1338", "home_team_id": "1339",
+    "open_spread": 12.5, "current_spread": 16.5, "sharp_spread": 17.0,
+    "open_total": 181.5, "current_total": 188.5,
+    "current_ml_away": 950, "current_ml_home": -1650,
+    "spread_pct_bets_away": 13, "spread_pct_money_away": 89,
+    "public_book": "DraftKings", "sharp_book": "Circa",
+    "fetched_at_utc": "2026-08-07T09:01:50+00:00",
+}
+
+LAST7 = [
+    {"team_name": "Los Angeles Sparks", "offensive_rating": 106.7,
+     "possessions": 85.7, "points": 91.4, "wins": 1, "losses": 6},
+    {"team_name": "Minnesota Lynx", "offensive_rating": 121.6,
+     "possessions": 82.3, "points": 100.0, "wins": 7, "losses": 0},
+]
+YTD = [
+    {"team_name": "Los Angeles Sparks", "offensive_rating": 105.3,
+     "possessions": 85.1, "points": 89.6, "wins": 11, "losses": 17},
+    {"team_name": "Minnesota Lynx", "offensive_rating": 113.0,
+     "possessions": 82.0, "points": 92.7, "wins": 25, "losses": 6},
+]
+
+
+def _slate(monkeypatch, games=None, last7=None, ytd=None):
+    monkeypatch.setattr(web, "fetch_betting", lambda: list(games if games is not None else [GAME_ROW]))
+    rows = {"last7": last7 if last7 is not None else LAST7,
+            "ytd": ytd if ytd is not None else YTD}
+    monkeypatch.setattr(web, "fetch_team_stats", lambda split: list(rows[split]))
+    # Production's team_stats ids are stats.wnba.com ids that never match the
+    # betting feed's Action Network ids, so the name join is what fires.
+    monkeypatch.setattr(web, "fetch_stats_by_team",
+                        lambda split="last7": {f"s{i}": r for i, r in enumerate(rows[split])})
+    monkeypatch.setattr(web, "fetch_status_counts", lambda: {
+        "betting_rows": 1, "betting_fetched_at_utc": "2026-08-07T09:01:50+00:00",
+        "last7_rows": 2, "last7_updated_at": "2026-08-07T08:00:00+00:00",
+        "ytd_rows": 2, "ytd_updated_at": "2026-08-07T08:00:00+00:00"})
+
+
+def test_every_market_value_sits_on_its_own_team_row(client, monkeypatch):
+    """LAW 2: the reader never translates an away-side number onto a team."""
+    _slate(monkeypatch)
+    html = client.get("/").data.decode()
+    away_row = html.split('game__row--away')[1].split('game__row--home')[0]
+    home_row = html.split('game__row--home')[1].split('</tbody>')[0]
+    assert "+16.5" in away_row and "O 188.5" in away_row and "+950" in away_row
+    assert "-16.5" in home_row and "U 188.5" in home_row and "-1650" in home_row
+
+
+def test_market_columns_are_labelled_not_positional(client, monkeypatch):
+    _slate(monkeypatch)
+    html = client.get("/").data.decode()
+    for label in ("Spread", "Total", "Moneyline"):
+        assert f'class="label">{label}</th>' in html
+
+
+def test_team_record_is_the_season_record_not_the_last7_window(client, monkeypatch):
+    # The last-7 split says Los Angeles is 1-6; the season says 11-17. Only one
+    # of those is what a reader means by "record".
+    _slate(monkeypatch)
+    html = client.get("/").data.decode()
+    assert "11-17" in html and "25-6" in html
+    assert ">1-6<" not in html
+
+
+def _flat(html: str) -> str:
+    """Rendered text with runs of whitespace collapsed, so an assertion about
+    copy is not defeated by where the template happens to wrap a line."""
+    import re
+    return re.sub(r"\s+", " ", html)
+
+
+def test_model_is_translated_into_basketball_language(client, monkeypatch):
+    _slate(monkeypatch)
+    html = _flat(client.get("/").data.decode())
+    assert "Projected spread" in html and "Market spread" in html
+    assert "MIN by " in html                 # a named favourite, not "+15.0"
+    assert "Model leans" in html
+    assert "not a trained machine-learning model" in html
+    assert "no defensive term" in html       # the model's real limitation
+
+
+def test_line_movement_is_stated_not_left_as_arithmetic(client, monkeypatch):
+    _slate(monkeypatch)
+    html = client.get("/").data.decode()
+    assert "Spread moved" in html
+    assert "4.0 toward MIN" in html          # 12.5 -> 16.5 on the away line
+    assert "7.0 toward Over" in html         # 181.5 -> 188.5
+
+
+def test_signals_are_named_and_explained_not_bare_dots(client, monkeypatch):
+    _slate(monkeypatch)
+    html = client.get("/").data.decode()
+    assert "Sharp Money" in html
+    assert "89% of money on LA vs 13% of tickets." in html
+
+
+def test_slate_is_grouped_by_day_with_relative_labels(client, monkeypatch):
+    import datetime as dt
+    today = dt.datetime.now(dt.timezone.utc).date()
+    rows = [dict(GAME_ROW, game_key="a", game_date=today.isoformat()),
+            dict(GAME_ROW, game_key="b",
+                 game_date=(today + dt.timedelta(days=1)).isoformat())]
+    _slate(monkeypatch, games=rows)
+    html = client.get("/").data.decode()
+    assert ">Today<" in html and ">Tomorrow<" in html
+
+
+def test_missing_market_renders_an_em_dash_never_a_zero(client, monkeypatch):
+    bare = {k: v for k, v in GAME_ROW.items()
+            if k not in ("current_total", "current_ml_away", "current_ml_home")}
+    _slate(monkeypatch, games=[bare])
+    html = client.get("/").data.decode()
+    import re
+    empty_cells = re.findall(
+        r'<span class="market market--empty".*?</span>\s*</span>', html, re.S)
+    assert empty_cells, "a missing market did not render the empty cell"
+    assert "not available" in html
+    # A missing market must never become a number — no digits at all inside the
+    # cell, so a fabricated 0, 0.0 or +0 cannot slip through.
+    for cell in empty_cells:
+        assert not re.search(r"\d", cell), f"empty market cell shows a number: {cell}"
+        assert "—" in cell
+
+
+def test_dashboard_and_rankings_ship_no_inline_script_or_style(client, monkeypatch):
+    """The stricter-CSP precondition, asserted rather than assumed."""
+    import re
+    _slate(monkeypatch)
+    for path in ("/", "/rankings"):
+        html = client.get(path).data.decode()
+        assert not re.search(r"<script(?![^>]*\bsrc=)", html), f"{path} has inline script"
+        assert "<style" not in html, f"{path} has an inline style block"
+
+
+def test_rankings_page_renders_both_splits(client, monkeypatch):
+    _slate(monkeypatch)
+    last7 = client.get("/rankings").data.decode()
+    assert "Offensive Power Rankings" in last7
+    assert "Minnesota Lynx" in last7
+    assert "vs season" in last7                 # form derivation is shown
+    season = client.get("/rankings?split=ytd").data.decode()
+    assert ">Season<" in season
+    # Season vs itself is not a form comparison, so none is claimed.
+    assert "vs season" not in season
+
+
+def test_rankings_bar_scale_is_disclosed_not_silently_truncated(client, monkeypatch):
+    _slate(monkeypatch)
+    html = client.get("/rankings").data.decode()
+    assert "not from zero" in html
+    assert "League-wide recent form" in html    # the calibration baseline
+
+
+def test_rankings_rejects_an_unknown_split_without_erroring(client, monkeypatch):
+    _slate(monkeypatch)
+    r = client.get("/rankings?split=../etc/passwd")
+    assert r.status_code == 200
+    assert "Last 7 Games" in r.data.decode()    # falls back, never 500s
+
+
+def test_rankings_db_error_still_200(client, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(web, "fetch_team_stats", boom)
+    monkeypatch.setattr(web, "fetch_status_counts", boom)
+    r = client.get("/rankings")
+    assert r.status_code == 200
+    assert "Live data is unavailable" in r.data.decode()
+
+
+def test_stale_team_stats_are_declared_on_both_pages(client, monkeypatch):
+    _slate(monkeypatch)
+    monkeypatch.setattr(web, "fetch_status_counts", lambda: {
+        "betting_rows": 1, "betting_fetched_at_utc": "2026-08-07T09:01:50+00:00",
+        "last7_rows": 2, "last7_updated_at": "2026-08-04T11:23:56+00:00",
+        "ytd_rows": 2, "ytd_updated_at": "2026-08-04T11:24:15+00:00"})
+    assert "hours old" in client.get("/").data.decode()
+    assert "hours old" in client.get("/rankings").data.decode()
+
+
+def test_fresh_team_stats_raise_no_staleness_notice(client, monkeypatch):
+    import datetime as dt
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    _slate(monkeypatch)
+    monkeypatch.setattr(web, "fetch_status_counts", lambda: {
+        "betting_rows": 1, "betting_fetched_at_utc": now,
+        "last7_rows": 2, "last7_updated_at": now,
+        "ytd_rows": 2, "ytd_updated_at": now})
+    assert "hours old" not in client.get("/").data.decode()
+
+
+def test_washington_resolves_a_logo_from_either_abbreviation(client, monkeypatch):
+    # PRODUCTION regression: the betting feed says WSH, the map only had WAS,
+    # so Washington rendered with no logo.
+    assert web._logo_url("WSH") == web._logo_url("WAS")
+    assert "wsh.png" in web._logo_url("WSH")
+
+
+def test_game_ids_are_dom_safe_and_deep_linkable(client, monkeypatch):
+    _slate(monkeypatch)
+    html = client.get("/").data.decode()
+    assert 'id="game-2026-08-07-la-min"' in html
+    assert 'id="analysis-2026-08-07-la-min"' in html
+    assert 'aria-controls="analysis-2026-08-07-la-min"' in html

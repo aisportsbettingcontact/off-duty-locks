@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>{% block title %}Off Duty Locks{% endblock %}</title>
+<meta name="description" content="{% block description %}WNBA markets, betting splits, line movement, signals and Model v0 analysis.{% endblock %}">
+{# fonts.gstatic.com serves the font files themselves; preconnecting only to
+   the stylesheet host leaves a second connection to open on the critical path #}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preload" as="image" href="https://a.espncdn.com/i/teamlogos/wnba/500/min.png">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='odl.css') }}">
+</head>
+<body data-page="{{ page or 'dashboard' }}">
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="hdr">
+  <a class="hdr__mark display" href="/">OFF DUTY <em>LOCKS</em></a>
+  <nav class="hdr__nav" aria-label="Primary">
+    <a href="/" {% if page == 'dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
+    <a href="/rankings" {% if page == 'rankings' %}aria-current="page"{% endif %}>Power Rankings</a>
+    <a href="/tables" {% if page == 'tables' %}aria-current="page"{% endif %}>Tables</a>
+  </nav>
+  <p class="freshness" id="updated" data-iso="{{ updated_at or '' }}"
+     data-label="{{ freshness_label or 'Updated' }}" aria-live="polite">
+    <span class="freshness__dot" aria-hidden="true"></span><span class="freshness__text"></span>
+  </p>
+</header>
+
+<main class="wrap" id="main">
+{% block content %}{% endblock %}
+</main>
+
+<script src="{{ url_for('static', filename='dashboard.js') }}" defer></script>
+</body>
+</html>
