@@ -395,8 +395,16 @@ function clearHash() {
 function openFromHash() {
   const match = window.location.hash.match(/game=([^&]+)(?:&market=([^&]+))?/);
   if (!match) return;
-  const key = decodeURIComponent(match[1]);
-  const market = match[2] ? decodeURIComponent(match[2]) : "spread";
+  // A malformed escape ("#game=%") makes decodeURIComponent throw URIError.
+  // This runs at boot, before the hashchange and resize listeners register, so
+  // an uncaught throw would orphan both for the rest of the session.
+  let key, market;
+  try {
+    key = decodeURIComponent(match[1]);
+    market = match[2] ? decodeURIComponent(match[2]) : "spread";
+  } catch {
+    return;
+  }
   const article = document.querySelector(`.game[data-game="${CSS.escape(key)}"]`);
   if (!article) return;
   openAnalysis(article, market);

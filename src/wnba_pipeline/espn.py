@@ -12,7 +12,7 @@ is the SAME ``resultSets`` envelope the validator already speaks, so
 
 Two ESPN hosts are used (docs/compliance.md section "ESPN" governs budgets):
 
-  site API   https://site.api.espn.com/apis/site/v2/sports/basketball/wnba
+  site API   https://site.web.api.espn.com/apis/site/v2/sports/basketball/wnba
              /teams, /teams/{id} (record), /teams/{id}/schedule, /summary
   core API   https://sports.core.api.espn.com/v2/sports/basketball/leagues/wnba
              /seasons/{y}/types/2/teams/{id}/statistics   (types/2 = regular)
@@ -103,7 +103,17 @@ from wnba_pipeline.http_client import CircuitBreaker, HttpConfig, get_json
 logger = logging.getLogger("wnba_pipeline.espn")
 
 ESPN_SOURCE = "espn"
-SITE_API = "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba"
+
+# site.web.api, not site.api (owner ruling 2026-08-07, recorded in
+# docs/compliance.md section "ESPN"). The two hosts serve byte-identical
+# documents at identical paths, but sit behind different edges: site.api is on
+# Akamai, which began answering this pipeline's honest User-Agent with 403 on
+# 2026-08-05 and killed the team-stats feed for three days. site.web.api
+# (Varnish) answers the same UA with 200 on every path this module uses —
+# verified end-to-end through all four of this module's parsers before the
+# swap. The User-Agent, request budget (~101/run) and paths are unchanged; no
+# access control is bypassed.
+SITE_API = "https://site.web.api.espn.com/apis/site/v2/sports/basketball/wnba"
 CORE_API = "https://sports.core.api.espn.com/v2/sports/basketball/leagues/wnba"
 
 # types/2 = regular season on the core API; the schedule endpoint takes the

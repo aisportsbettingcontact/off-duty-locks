@@ -88,3 +88,55 @@ def test_merge_without_vsin_leaves_splits_and_sharp_null(fixtures_dir):
     assert all(m.spread_pct_bets_away is None for m in merged)
     # AN-derived line fields are still populated without VSIN.
     assert all(m.current_spread is not None for m in merged)
+
+
+# --------------------------------------------------------------------------- #
+# VSIN confirmation stamp — the age of the preserved splits must be knowable
+# --------------------------------------------------------------------------- #
+
+def _an_game():
+    from wnba_pipeline.betting.contract import AnGame
+    return AnGame(
+        game_id=1, game_date="2026-08-07", start_time=None, status="scheduled",
+        away_team_id=1, home_team_id=2,
+        away_name="Phoenix Mercury", away_abbr="PHX",
+        home_name="Los Angeles Sparks", home_abbr="LA",
+        open_spread_away=1.5, open_total=170.0, open_ml_away=110, open_ml_home=-130,
+        dk_spread_away=2.0, dk_total=171.0, dk_ml_away=120, dk_ml_home=-140)
+
+
+def _vsin_game():
+    from wnba_pipeline.betting.contract import VsinGame
+    return VsinGame(
+        game_id="20260807WNBA1", game_date="2026-08-07",
+        away_slug="phoenix-mercury", home_slug="los-angeles-sparks",
+        away_name="Phoenix Mercury", home_name="Los Angeles Sparks",
+        spread_away=2.0, total=171.0, ml_away=120, ml_home=-140,
+        spread_pct_bets_away=60, spread_pct_money_away=80)
+
+
+def test_vsin_stamp_advances_only_when_vsin_carried_the_game():
+    stamp = "2026-08-07T12:00:00+00:00"
+    hit = merge_games([_an_game()], [_vsin_game()], [], fetched_at_utc=stamp)[0]
+    assert hit.vsin_fetched_at_utc == stamp
+
+
+def test_vsin_stamp_stays_none_on_a_miss_so_coalesce_preserves_the_old_one():
+    """A VSIN miss must not restamp the values it did not confirm.
+
+    The VSIN-derived columns COALESCE-preserve, so without this a sharp price
+    and an RLM badge would keep Action Network's fresh timestamp and read as
+    current forever.
+    """
+    miss = merge_games([_an_game()], [], [],
+                       fetched_at_utc="2026-08-07T12:00:00+00:00")[0]
+    assert miss.vsin_fetched_at_utc is None
+    # Action Network's own stamp is unaffected — its values ARE fresh.
+    assert miss.fetched_at_utc == "2026-08-07T12:00:00+00:00"
+
+
+def test_a_circa_only_hit_still_stamps():
+    stamp = "2026-08-07T12:00:00+00:00"
+    only_circa = merge_games([_an_game()], [], [_vsin_game()], fetched_at_utc=stamp)[0]
+    assert only_circa.vsin_fetched_at_utc == stamp
+    assert only_circa.sharp_book is not None

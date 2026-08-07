@@ -337,7 +337,8 @@ def split_blocks(game: Mapping[str, Any], away_abbr: Any, home_abbr: Any
 # --------------------------------------------------------------------------- #
 
 def rankings_view_with_scale(last7_rows: Sequence[Mapping[str, Any]],
-                             ytd_rows: Sequence[Mapping[str, Any]]
+                             ytd_rows: Sequence[Mapping[str, Any]],
+                             primary_is_season: bool = False
                              ) -> tuple[list[dict[str, Any]], dict[str, float] | None]:
     """Ranked rows plus the real bar-scale domain.
 
@@ -383,12 +384,20 @@ def rankings_view_with_scale(last7_rows: Sequence[Mapping[str, Any]],
         form_delta = (rating - season_rating
                       if rating is not None and season_rating is not None else None)
 
-        # Record always reads as the SEASON record. The last-7 row's wins and
-        # losses count only games inside that window, so a 5-2 there belongs to
-        # a team that may be 19-11 on the year — two different claims that look
-        # identical on screen.
-        record_row = season if season is not None else row
-        wins, losses = record_row.get("wins"), record_row.get("losses")
+        # Record always reads as the SEASON record, or not at all. The last-7
+        # row's wins and losses count only games inside that window, so a 5-2
+        # there belongs to a team that may be 19-11 on the year — two different
+        # claims that look identical on screen. Falling back to the window also
+        # defeated `repair-data`, which deletes the season split precisely so
+        # the site renders an empty state instead of a mislabelled number.
+        wins = losses = None
+        if season is not None:
+            wins, losses = season.get("wins"), season.get("losses")
+        elif primary_is_season:
+            # The rows being ranked ARE the season split, so their own record
+            # is the season record. Never inferred from an absent comparison —
+            # that is how a 7-game window came to render as a season record.
+            wins, losses = row.get("wins"), row.get("losses")
         rows.append({
             "rank": index + 1,
             "team_name": row.get("team_name"),
@@ -413,15 +422,106 @@ def rankings_view_with_scale(last7_rows: Sequence[Mapping[str, Any]],
 
 
 def rankings_view(last7_rows: Sequence[Mapping[str, Any]],
-                  ytd_rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    return rankings_view_with_scale(last7_rows, ytd_rows)[0]
+                  ytd_rows: Sequence[Mapping[str, Any]],
+                  primary_is_season: bool = False) -> list[dict[str, Any]]:
+    return rankings_view_with_scale(last7_rows, ytd_rows, primary_is_season)[0]
 
 
 # --------------------------------------------------------------------------- #
 # Slate grouping — a date a reader recognizes without doing calendar math
 # --------------------------------------------------------------------------- #
 
+# --------------------------------------------------------------------------- #
+# Game status — a claim about NOW, so it has to be checked against now
+# --------------------------------------------------------------------------- #
+
+# A WNBA game runs about 2h; past this a row still marked in-progress is the
+# feed being stale, not a game running five hours long.
+LIVE_MAX_HOURS = 4.0
+# An in-progress claim is only as good as the row that carries it.
+STATUS_FRESH_MINUTES = 45.0
+
+_TERMINAL_STATUS = {
+    "complete": "Final", "final": "Final", "closed": "Final",
+    "postponed": "Postponed", "canceled": "Canceled", "cancelled": "Canceled",
+    "suspended": "Suspended",
+}
+_PREGAME_STATUS = {"scheduled", "pre", "pregame", "", "none"}
+
+# Rendered when the feed still claims a game is running but nothing supports it.
+STATUS_STALE_LABEL = "Status stale"
+
+
+def status_label(status: Any, start_time: Any = None, fetched_at: Any = None,
+                 now: _dt.datetime | None = None) -> str | None:
+    """Display status for a game row, or None when there is nothing to say.
+
+    "Live" is an assertion about the present tense, so it is only made when the
+    row can still support it: the game started recently enough to plausibly be
+    running, and the row itself was fetched recently. A production row marked
+    ``inprogress`` whose tip-off was ten hours earlier rendered a green "Live"
+    badge — the feed had simply stopped updating that game.
+    """
+    token = str(status or "").strip().lower()
+    if token in _TERMINAL_STATUS:
+        return _TERMINAL_STATUS[token]
+    if token in _PREGAME_STATUS:
+        return None
+    if token not in ("inprogress", "in_progress", "live", "halftime"):
+        return None
+
+    moment = now or _dt.datetime.now(_dt.timezone.utc)
+    started = _as_utc(start_time)
+    if started is not None and (moment - started).total_seconds() / 3600.0 > LIVE_MAX_HOURS:
+        return STATUS_STALE_LABEL
+    seen = _as_utc(fetched_at)
+    if seen is not None and (moment - seen).total_seconds() / 60.0 > STATUS_FRESH_MINUTES:
+        return STATUS_STALE_LABEL
+    if started is None and seen is None:
+        # Nothing to check the claim against; do not make it.
+        return STATUS_STALE_LABEL
+    return "Live"
+
+
+def _as_utc(value: Any) -> _dt.datetime | None:
+    """Parse a timestamp to an aware UTC datetime, or None."""
+    if isinstance(value, _dt.datetime):
+        moment = value
+    else:
+        try:
+            moment = _dt.datetime.fromisoformat(str(value))
+        except (TypeError, ValueError):
+            return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=_dt.timezone.utc)
+    return moment
+
+
 _RELATIVE = {-1: "Yesterday", 0: "Today", 1: "Tomorrow"}
+
+# The WNBA schedules in Eastern time and ``betting_games.game_date`` is that
+# ET slate date, so "today" must be resolved in ET too. Resolving it in UTC
+# rolls the reference forward at 20:00 ET — inside the tip-off window — and
+# labels a slate that has not started yet as "Yesterday".
+SLATE_TZ = "America/New_York"
+
+
+def slate_today(now: _dt.datetime | None = None) -> _dt.date:
+    """The current slate date, in the league's own timezone.
+
+    Falls back to UTC only if the platform has no zone database, which shifts
+    the boundary but never silently: the same fallback is visible in
+    ``web._et_time``.
+    """
+    moment = now or _dt.datetime.now(_dt.timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=_dt.timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+
+        return moment.astimezone(ZoneInfo(SLATE_TZ)).date()
+    except Exception:  # noqa: BLE001 - no tzdata: UTC is wrong but deterministic
+        return moment.astimezone(_dt.timezone.utc).date()
 
 
 def _as_date(value: Any) -> _dt.date | None:
@@ -442,7 +542,7 @@ def group_by_date(games: Sequence[Mapping[str, Any]], today: Any = None
     Undated rows collect into a trailing "Scheduled" group rather than being
     dropped or guessed into a day.
     """
-    reference = _as_date(today) or _dt.datetime.now(_dt.timezone.utc).date()
+    reference = _as_date(today) or slate_today()
     buckets: dict[Any, list[Mapping[str, Any]]] = {}
     for game in games or ():
         buckets.setdefault(_as_date(game.get("game_date")), []).append(game)

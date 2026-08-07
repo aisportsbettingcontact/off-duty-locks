@@ -70,6 +70,7 @@ BETTING_GAMES_COLUMNS: tuple[str, ...] = (
     "open_ml_away", "open_ml_home", "current_ml_away", "current_ml_home",
     "sharp_ml_away", "sharp_ml_home", "ml_pct_bets_away", "ml_pct_money_away", "ml_rlm",
     "public_book", "sharp_book", "an_game_id", "vsin_game_id", "fetched_at_utc",
+    "vsin_fetched_at_utc",
 )
 
 # The VSIN-derived columns. merge.py leaves every one of these None when the
@@ -86,6 +87,7 @@ VSIN_PRESERVE_COLUMNS: tuple[str, ...] = (
     "ml_pct_bets_away", "ml_pct_money_away",
     "sharp_spread", "sharp_total", "sharp_ml_away", "sharp_ml_home",
     "sharp_book", "spread_rlm", "total_rlm", "ml_rlm", "vsin_game_id",
+    "vsin_fetched_at_utc",
 )
 
 
@@ -144,11 +146,19 @@ def betting_games_rows(games: list[Any]) -> list[dict[str, Any]]:
 
 # Line-movement history: the CURRENT values of each game at fetch time,
 # appended once per scrape run (PK = game_key + captured_at_utc).
+#
+# The model_* / edge_score / signals columns exist because they CANNOT be
+# reconstructed later: team_stats is overwrite-in-place on a 5-column PK, so
+# the exact inputs Model v0 saw at capture time are gone by the next daily
+# publish. Persisting the output alongside each market snapshot is what makes
+# outcome grading possible at all — without it a grader added in six months
+# starts from zero history.
 SNAPSHOT_COLUMNS: tuple[str, ...] = (
     "game_key", "captured_at_utc", "spread", "total", "ml_away", "ml_home",
     "spread_pct_bets_away", "spread_pct_money_away",
     "total_pct_bets_over", "total_pct_money_over",
     "ml_pct_bets_away", "ml_pct_money_away", "public_book",
+    "model_spread", "model_total", "edge_score", "signals",
 )
 
 _SNAPSHOT_SOURCE_FIELDS = {
@@ -159,18 +169,72 @@ _SNAPSHOT_SOURCE_FIELDS = {
     "ml_home": "current_ml_home",
 }
 
+# The market fields a snapshot exists to record. A row where every one is None
+# says nothing a later reader can use — 11% of stored history was such rows,
+# each still asserting a book name.
+_SNAPSHOT_MARKET_FIELDS = ("spread", "total", "ml_away", "ml_home")
 
-def snapshot_rows(games: list[Any]) -> list[dict[str, Any]]:
-    """BettingGame dataclasses -> betting_line_snapshots rows (current values)."""
+
+def _tipped_off(start_time: Any, captured_at: Any) -> bool:
+    """True when the capture is at or after tip-off.
+
+    Post-tip captures were observed frozen (five identical rows on one game):
+    the feed stops moving, so appending them only pads the history with
+    duplicates and blurs which capture was the closing line. With post-tip
+    rows excluded, the closing line is simply each game's LAST snapshot.
+    Unparseable timestamps keep the row — dropping data on a parse failure
+    would be a silent loss.
+    """
+    import datetime as _dt
+
+    def parse(value: Any) -> _dt.datetime | None:
+        if not value:
+            return None
+        try:
+            moment = _dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=_dt.timezone.utc)
+        return moment
+
+    start, captured = parse(start_time), parse(captured_at)
+    if start is None or captured is None:
+        return False
+    return captured >= start
+
+
+def snapshot_rows(games: list[Any],
+                  enriched: list[dict[str, Any]] | None = None
+                  ) -> list[dict[str, Any]]:
+    """BettingGame dataclasses -> betting_line_snapshots rows (current values).
+
+    ``enriched`` is the output of ``enrich_games`` over the same games in the
+    same order; when supplied, each snapshot also records the model projection
+    and the fired signals as of this capture.
+    """
     import dataclasses
 
     rows: list[dict[str, Any]] = []
-    for g in games:
+    for index, g in enumerate(games):
         d = dataclasses.asdict(g)
-        rows.append({
+        row = {
             col: d.get(_SNAPSHOT_SOURCE_FIELDS.get(col, col))
             for col in SNAPSHOT_COLUMNS
-        })
+        }
+        if all(row.get(f) is None for f in _SNAPSHOT_MARKET_FIELDS):
+            continue
+        if _tipped_off(d.get("start_time"), row.get("captured_at_utc")):
+            continue
+        if enriched is not None and index < len(enriched):
+            e = enriched[index] or {}
+            model = e.get("model") or {}
+            row["model_spread"] = model.get("spread")
+            row["model_total"] = model.get("total")
+            row["edge_score"] = model.get("edge_score")
+            signals = e.get("signals")
+            row["signals"] = json.dumps(signals, separators=(",", ":")) if signals else None
+        rows.append(row)
     return rows
 
 
@@ -311,6 +375,15 @@ class BettingPublisher:
     def __init__(self, database_url: str | None = None) -> None:
         self.database_url = database_url
 
+    @staticmethod
+    def _stats_map(cur, split: str) -> dict[str, dict[str, Any]]:
+        """team_id -> the stats Model v0 reads, for one split."""
+        cur.execute(
+            "SELECT team_id, team_name, possessions, offensive_rating "
+            "FROM team_stats WHERE split = %s", (split,))
+        cols = [c.name for c in cur.description]
+        return {str(r[0]): dict(zip(cols, r)) for r in cur.fetchall()}
+
     def publish(self, games: list[Any]) -> int:
         """Upsert one row per game. Returns the number of rows written."""
         rows = betting_games_rows(games)
@@ -320,12 +393,30 @@ class BettingPublisher:
         sql = upsert_sql("betting_games", columns, BETTING_GAMES_PK,
                          preserve_on_null=VSIN_PRESERVE_COLUMNS)
         params = [tuple(row[c] for c in columns) for row in rows]
-        snap_params = [
-            tuple(row[c] for c in SNAPSHOT_COLUMNS) for row in snapshot_rows(games)
-        ]
         conn = connect(self.database_url)
         try:
             bootstrap_schema(conn)  # self-healing; safe if tables already exist
+
+            # Attach the model-as-of-now to each snapshot. Best-effort by
+            # design: a missing team_stats table or empty split must never
+            # block the market publish — the snapshot simply records no model,
+            # which is the truth of that moment.
+            enriched = None
+            try:
+                from wnba_pipeline.enrich import enrich_games
+
+                with conn.cursor() as cur:
+                    recent = self._stats_map(cur, "last7")
+                    season = self._stats_map(cur, "ytd")
+                if recent:
+                    enriched = enrich_games(rows, recent, season or None)
+            except Exception as exc:  # noqa: BLE001 - snapshots degrade, publish proceeds
+                logger.warning("snapshot model attachment skipped: %s", exc)
+
+            snap_params = [
+                tuple(row[c] for c in SNAPSHOT_COLUMNS)
+                for row in snapshot_rows(games, enriched)
+            ]
             with conn.cursor() as cur:
                 cur.executemany(sql, params)
                 if snap_params:

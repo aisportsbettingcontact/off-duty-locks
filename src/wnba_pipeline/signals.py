@@ -34,10 +34,32 @@ def _sig(market: str, type_: str, side: str | None) -> dict[str, Any]:
     return {"market": market, "type": type_, "side": side}
 
 
+def _moneyline_move(game: Mapping[str, Any]) -> float | None:
+    """Away-side moneyline movement, derived from the two stored prices.
+
+    There is no ``ml_line_move`` column, so the moneyline had no entry in
+    ``_MOVE_FIELDS`` and ``_rlm_side`` looked up ``game.get("")`` — always None.
+    A moneyline RLM therefore always rendered with no side, and a moneyline
+    conflict (which needs a direction to disagree with) could never fire at all.
+    Both endpoints ARE stored, so the movement is derivable.
+
+    American odds are not linear across zero, so only the SIGN of the shift is
+    used: a rising away price means the away side got longer, i.e. the market
+    moved toward the home team.
+    """
+    opening, current = game.get("open_ml_away"), game.get("current_ml_away")
+    if opening is None or current is None:
+        return None
+    return float(current) - float(opening)
+
+
 def _rlm_side(market: str, game: Mapping[str, Any], pct_side: str, other: str) -> str | None:
     """Direction the line moved (the side RLM points toward)."""
-    move = game.get(_MOVE_FIELDS.get(market, ""), None)
-    if move is None:
+    if market == "moneyline":
+        move = _moneyline_move(game)
+    else:
+        move = game.get(_MOVE_FIELDS.get(market, ""), None)
+    if move is None or move == 0:
         return None
     if market == "total":
         return "over" if move > 0 else "under"

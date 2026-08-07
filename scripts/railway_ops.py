@@ -456,14 +456,56 @@ def fix(found: dict, expect_port: int, apply: bool) -> int:
     return rc
 
 
+def token_scope() -> int:
+    """Report the BLAST RADIUS of the configured token, without naming anything.
+
+    The question this answers: if this repository's Railway secret leaked, what
+    could it reach? A project-scoped token can touch one project; an account or
+    team token can touch every project the account owns — including production
+    systems that have nothing to do with this repo. This repository is PUBLIC,
+    so the output is deliberately counts and verdicts only: no project names,
+    no ids, no emails.
+    """
+    try:
+        data = gql(Q_PROJECTS)
+        projects = edges(data, "projects")
+    except GraphQLError as exc:
+        # A project token typically cannot enumerate projects at all.
+        print("  projects query failed — consistent with a PROJECT-scoped token")
+        print(f"  (error class only: {type(exc).__name__})")
+        print("  VERDICT: narrow scope. Leak impact is bounded to one project.")
+        return 0
+
+    count = len(projects)
+    services = sum(len(edges(p, "services")) for p in projects)
+    print(f"  projects visible : {count}")
+    print(f"  services visible : {services}")
+    if count <= 1:
+        print("  VERDICT: narrow scope — the token sees at most this project.")
+        return 0
+    print(f"  VERDICT: BROAD scope — this token can reach {count} projects,")
+    print("  not just the one this repository operates. If any of the others")
+    print("  is production infrastructure, a leak of this repo's secret is an")
+    print("  incident there too. Replace RAILWAY_API_TOKEN with a token scoped")
+    print("  to this project (Railway -> Project -> Settings -> Tokens), or")
+    print("  accept the radius knowingly.")
+    # Deliberately exit 0: this is a survey, not a gate. The verdict line is
+    # the deliverable; failing the run would just discourage running it.
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("mode", choices=["diagnose", "fix"], nargs="?", default="diagnose")
+    ap.add_argument("mode", choices=["diagnose", "fix", "token-scope"],
+                nargs="?", default="diagnose")
     ap.add_argument("--domain", default="offdutylocks.com")
     ap.add_argument("--port", type=int, default=3000,
                     help="the port the app listens on (default: 3000)")
     ap.add_argument("--yes", action="store_true", help="apply changes in fix mode")
     args = ap.parse_args(argv)
+
+    if args.mode == "token-scope":
+        return token_scope()
 
     found = diagnose(args.domain, args.port)
     if args.mode == "fix":

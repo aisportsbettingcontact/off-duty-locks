@@ -89,7 +89,14 @@
 
 {% macro splits_block(game) %}
 <section class="block">
-  <div class="block__head"><h3 class="label">Betting splits</h3></div>
+  <div class="block__head">
+    <h3 class="label">Betting splits</h3>
+    {# VSIN-derived values COALESCE-preserve on a miss, so without their own
+       age they can read as current beside fresh Action Network lines. #}
+    {% if game.vsin_stale_hours %}
+    <span class="split__diverge">{{ game.vsin_stale_hours }}h old</span>
+    {% endif %}
+  </div>
   {% set live = game.splits | selectattr('tickets') | list %}
   {% if live %}
   <div class="split">
@@ -213,7 +220,7 @@
 
 
 {% macro game_card(game, home_court) %}
-<article class="game{% if game.is_final %} game--final{% elif game.status_text == 'Live' %} game--live{% endif %}"
+<article class="game{% if game.is_final %} game--final{% elif game.is_live %} game--live{% endif %}"
          id="game-{{ game.slug }}" data-game="{{ game.key }}">
   <div class="game__meta">
     <span class="game__time">{{ game.time_text or game.date_text or 'Time TBD' }}</span>

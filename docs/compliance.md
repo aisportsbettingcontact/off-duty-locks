@@ -185,13 +185,33 @@ must adopt the same ceilings):
   the pipeline halts (runs report `UPSTREAM_UNAVAILABLE`) until the compliance
   review is redone by a human.
 
-## ESPN (`site.api.espn.com` / `sports.core.api.espn.com`)
+## ESPN (`site.web.api.espn.com` / `sports.core.api.espn.com`)
 
 Team-stats source in production since the owner decision of 2026-08-04.
 Applies to `src/wnba_pipeline/espn.py` and the `extract` workflow.
 
+**Host history (owner ruling 2026-08-07).** The site API was adopted on
+`site.api.espn.com`. On 2026-08-05 that host's edge (Akamai) began answering
+this pipeline's honest User-Agent with **403** on every path in use, and the
+feed died; per section 2.5 the pipeline stopped rather than adapting, and the
+question escalated to a human. Diagnosis established the block keys on the
+User-Agent string at that edge only: `site.web.api.espn.com` serves
+byte-identical documents at identical paths from a different edge (Varnish)
+and answers the same honest UA with 200 — verified end-to-end through all four
+of `espn.py`'s parsers before any change. The owner ruled to move the site-API
+constant to `site.web.api.espn.com`. Nothing else changed: same UA, same
+paths, same parsers, same ~101-request budget, no credentials, no header
+mimicry — this is a host selection, not an evasion of an access control. If
+`site.web.api.espn.com` also begins refusing the honest UA, the same rule
+applies: stop, record, escalate to a human. It is not licensed to hop hosts
+again without a new ruling.
+
+**robots.txt on the new host** (fetched once, 2026-08-07): `GET /robots.txt`
+returns the same no-policy 403 body as the other two hosts recorded below.
+
 **robots.txt findings.** Fetched once per host on 2026-08-04 (two requests
-total, counted against that session's recording budget). Both hosts answer
+total, counted against that session's recording budget; `site.api.espn.com`
+and `sports.core.api.espn.com`). Both hosts answer
 `GET /robots.txt` with **HTTP 403** and this exact 118-byte HTML body — no
 robots policy is served at all:
 

@@ -20,6 +20,49 @@ from dataclasses import dataclass
 
 _SIGNED_DECIMAL = re.compile(r"[-+]?\d+(?:\.\d+)?")
 _SIGNED_INT = re.compile(r"[-+]?\d+")
+_PERCENT = re.compile(r"(\d{1,3})\s*%")
+
+# Characters upstream formatters emit where ASCII hyphen-minus belongs. Left
+# untranslated they do not match the sign group, so the regex matches only the
+# digits and a FAVOURITE silently becomes an UNDERDOG: "−1650" -> +1650.
+_DASH_FORMS = {
+    "−": "-",   # MINUS SIGN
+    "–": "-",   # EN DASH
+    "—": "-",   # EM DASH
+    "‒": "-",   # FIGURE DASH
+    "‐": "-",   # HYPHEN
+    "‑": "-",   # NON-BREAKING HYPHEN
+    "－": "-",   # FULLWIDTH HYPHEN-MINUS
+    "⁃": "-",   # HYPHEN BULLET
+}
+
+# Thousands separator between digits only, so a European decimal comma is not
+# silently eaten. Without this "-1,650" matched "-1" and published as -1.
+_THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
+# A sign detached from its digits, e.g. "- 110" from a two-node sign badge.
+_LOOSE_SIGN = re.compile(r"([-+])[\s ]+(?=\d)")
+
+# No spread or total is ever this large. A value beyond it means a moneyline
+# (or a gamecode) landed in a line cell — reject rather than publish it.
+MAX_LINE_MAGNITUDE = 500.0
+# American odds never fall strictly between -100 and +100, and are never 0.
+MIN_AMERICAN_ODDS = 100
+
+
+def normalize_numeric_text(value: object) -> str:
+    """Upstream numeric cell -> a string the parse regexes can read correctly.
+
+    One shared normalizer for every betting parser: dash variants folded to
+    ASCII, thousands separators removed, detached signs reattached. Each of
+    these produced a wrong published number, not a missing one, which is why
+    they are handled before parsing rather than validated after.
+    """
+    text = str(value).replace(" ", " ")
+    for form, ascii_dash in _DASH_FORMS.items():
+        text = text.replace(form, ascii_dash)
+    text = _THOUSANDS.sub("", text)
+    text = _LOOSE_SIGN.sub(r"\1", text)
+    return text.strip()
 
 
 def slugify_team(name: str | None) -> str:
@@ -35,58 +78,71 @@ def slug_from_href(href: str | None) -> str:
 
 def parse_line(value: object) -> float | None:
     """Spread/total line as float. ``"PK"``/``"EV"`` (pick'em) -> 0.0; a cell
-    with no numeric content -> ``None``."""
+    with no numeric content, or a magnitude no line can have -> ``None``."""
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value)
-    text = str(value).strip()
+        return float(value) if abs(value) <= MAX_LINE_MAGNITUDE else None
+    text = normalize_numeric_text(value)
     if not text:
         return None
-    if re.search(r"\b(pk|ev|even)\b", text, re.IGNORECASE) and not _SIGNED_DECIMAL.search(text):
+    # A pick'em cell names the LINE, and any number beside it is the price:
+    # "PK -110" is a zero line at -110 juice, not a -110 line.
+    if re.search(r"\b(pk|ev|even)\b", text, re.IGNORECASE):
         return 0.0
     match = _SIGNED_DECIMAL.search(text.replace("+", ""))
     if match is None:
         return None
     try:
-        return float(match.group())
+        line = float(match.group())
     except ValueError:
         return None
+    return line if abs(line) <= MAX_LINE_MAGNITUDE else None
 
 
 def parse_american_odds(value: object) -> int | None:
-    """American odds as int (``"+100"`` -> 100, ``-121`` -> -121). ``None`` when
-    there is no numeric content."""
+    """American odds as int (``"+100"`` -> 100, ``-121`` -> -121).
+
+    ``None`` when there is no numeric content, or when the magnitude is
+    impossible for American odds. The guard is the point: a truncated
+    ``"-1,650"`` used to publish as ``-1``, a 44-point implied-probability
+    error sitting beside the correct ``-1650`` from the other feed.
+    """
     if value is None or isinstance(value, bool):
         return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    match = _SIGNED_INT.search(str(value).replace("+", ""))
-    if match is None:
-        return None
-    try:
-        return int(match.group())
-    except ValueError:
-        return None
+    if isinstance(value, (int, float)):
+        odds = int(value)
+    else:
+        match = _SIGNED_INT.search(normalize_numeric_text(value).replace("+", ""))
+        if match is None:
+            return None
+        try:
+            odds = int(match.group())
+        except ValueError:
+            return None
+    return odds if abs(odds) >= MIN_AMERICAN_ODDS else None
 
 
 def parse_percent(value: object) -> int | None:
     """Integer percent from a VSIN badge like ``"75%"`` or ``"▲ 75%"``.
-    ``None`` when there is no numeric content, or when the number falls
-    outside 0..100 — a layout change can land an unrelated number (a
-    gamecode, a price) in the badge cell, and that must not publish as a
-    split."""
+
+    Requires a percent SHAPE, not merely a number in range: a layout change can
+    land a price or a gamecode in the badge cell, and ``"1,650"`` yielding a
+    plausible-looking ``1%`` is worse than yielding nothing.
+    """
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
         pct = int(value)
     else:
-        match = re.search(r"\d+", str(value))
-        if match is None:
+        text = normalize_numeric_text(value)
+        match = _PERCENT.search(text)
+        if match is not None:
+            pct = int(match.group(1))
+        elif re.fullmatch(r"\d{1,3}", text):
+            pct = int(text)          # a bare integer cell, nothing else in it
+        else:
             return None
-        pct = int(match.group())
     return pct if 0 <= pct <= 100 else None
 
 
@@ -187,3 +243,9 @@ class BettingGame:
     an_game_id: str | None
     vsin_game_id: str | None
     fetched_at_utc: str | None
+    # When VSIN last CONFIRMED this row's splits and sharp line. Distinct from
+    # fetched_at_utc, which is Action Network's. The VSIN-derived columns
+    # COALESCE-preserve on a miss, so without a separate stamp a sharp price
+    # and an RLM badge can outlive the market they describe with nothing on the
+    # page or in any gate able to reveal it.
+    vsin_fetched_at_utc: str | None = None

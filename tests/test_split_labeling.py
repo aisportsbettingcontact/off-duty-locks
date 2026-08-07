@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+import datetime
+
 import argparse
 import json
 
@@ -141,7 +143,19 @@ def test_betting_query_is_bounded(monkeypatch):
 
     assert "WHERE" in captured["sql"], "the slate query must be bounded by date"
     assert "game_date >=" in captured["sql"]
-    assert captured["params"] == (web.BETTING_LOOKBACK_DAYS,)
+    # The bound is a concrete date computed in LEAGUE time, not CURRENT_DATE.
+    # CURRENT_DATE is the database session's zone (UTC on Railway), and
+    # game_date is the ET slate date, so a server-side pivot drops last night's
+    # slate at 20:00 ET — inside the tip-off window.
+    assert "CURRENT_DATE" not in captured["sql"]
+    assert captured["params"] == (web.slate_floor(),)
+    assert isinstance(captured["params"][0], datetime.date)
+
+
+def test_slate_floor_is_lookback_days_before_league_today():
+    import wnba_pipeline.presentation as pres
+    assert web.slate_floor() == pres.slate_today() - datetime.timedelta(
+        days=web.BETTING_LOOKBACK_DAYS)
 
 
 def test_lookback_keeps_late_tipoffs():
@@ -274,3 +288,117 @@ def test_repair_rejects_identical_split_arguments(monkeypatch):
     code, conn, _ = _repair(monkeypatch, _identical_store(),
                             remove_split="ytd", against="ytd", yes=True)
     assert code == cli.EXIT_CONFIG_ERROR
+
+
+# --------------------------------------------------------------------------- #
+# 4. repair-odds — NULL prices no book could ever have posted
+# --------------------------------------------------------------------------- #
+
+class _OddsCursor:
+    """psycopg-shaped cursor over one in-memory betting_games table."""
+
+    def __init__(self, rows):
+        self.rows = rows
+        self._result = []
+        self.rowcount = 0
+        self.updates = 0
+
+    def execute(self, sql, params=()):
+        low = " ".join(sql.split()).lower()
+        if low.startswith("select game_key"):
+            cols = ["open_ml_away", "open_ml_home", "current_ml_away",
+                    "current_ml_home", "sharp_ml_away", "sharp_ml_home"]
+            self._result = [
+                tuple([r["game_key"]] + [r.get(c) for c in cols])
+                for r in self.rows
+                if any(r.get(c) is not None and (r[c] == 0 or abs(r[c]) < 100)
+                       for c in cols)
+            ]
+        elif low.startswith("update betting_games"):
+            cols = ["open_ml_away", "open_ml_home", "current_ml_away",
+                    "current_ml_home", "sharp_ml_away", "sharp_ml_home"]
+            touched = 0
+            for r in self.rows:
+                hit = False
+                for c in cols:
+                    v = r.get(c)
+                    if v is not None and (v == 0 or abs(v) < 100):
+                        r[c] = None
+                        hit = True
+                if hit:
+                    touched += 1
+            self.rowcount = touched
+            self.updates += 1
+        else:  # pragma: no cover
+            raise AssertionError(f"unexpected SQL: {sql}")
+
+    def fetchall(self): return list(self._result)
+    def fetchone(self): return self._result[0] if self._result else None
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+class _OddsConn:
+    def __init__(self, rows):
+        self.cur = _OddsCursor(rows)
+
+    def cursor(self): return self.cur
+    def close(self): pass
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+def _odds_rows():
+    return [
+        # The real production defect: a truncated "-1,650" stored as -1.
+        {"game_key": "2026-08-06:LA@MIN", "current_ml_home": -1650,
+         "sharp_ml_home": -1, "current_ml_away": 950, "sharp_ml_away": 925,
+         "open_ml_away": 750, "open_ml_home": -1200},
+        # A wholly legitimate row that must not be touched.
+        {"game_key": "2026-08-07:ATL@WSH", "current_ml_home": 145,
+         "sharp_ml_home": 145, "current_ml_away": -175, "sharp_ml_away": -165,
+         "open_ml_away": -170, "open_ml_home": 140},
+    ]
+
+
+def _run_repair_odds(monkeypatch, rows, yes=False):
+    from wnba_pipeline import db
+    conn = _OddsConn(rows)
+    monkeypatch.setattr(db, "connect", lambda *a, **k: conn)
+    args = argparse.Namespace(database_url="postgres://x", yes=yes)
+    return cli._cmd_repair_odds(args), conn
+
+
+def test_repair_odds_dry_run_changes_nothing(monkeypatch):
+    rows = _odds_rows()
+    code, conn = _run_repair_odds(monkeypatch, rows)
+    assert code == 0
+    assert conn.cur.updates == 0
+    assert rows[0]["sharp_ml_home"] == -1, "dry run must not write"
+
+
+def test_repair_odds_nulls_only_the_impossible_value(monkeypatch):
+    rows = _odds_rows()
+    code, conn = _run_repair_odds(monkeypatch, rows, yes=True)
+    assert code == 0
+    assert rows[0]["sharp_ml_home"] is None, "the impossible price must be cleared"
+    # Everything else on that row survives — repair never invents a correction.
+    assert rows[0]["current_ml_home"] == -1650
+    assert rows[0]["sharp_ml_away"] == 925
+    # The legitimate row is untouched.
+    assert rows[1] == _odds_rows()[1]
+
+
+def test_repair_odds_is_idempotent(monkeypatch):
+    rows = _odds_rows()
+    _run_repair_odds(monkeypatch, rows, yes=True)
+    after_first = [dict(r) for r in rows]
+    _run_repair_odds(monkeypatch, rows, yes=True)
+    assert [dict(r) for r in rows] == after_first
+
+
+def test_repair_odds_reports_clean_when_nothing_is_wrong(monkeypatch):
+    rows = [_odds_rows()[1]]
+    code, conn = _run_repair_odds(monkeypatch, rows, yes=True)
+    assert code == 0
+    assert conn.cur.updates == 0

@@ -151,6 +151,18 @@ def check_team_split(
                                f"{split}/{team}: offensive_rating {ortg:g} outside 70..140",
                                {"split": split, "team": team, "offensive_rating": ortg}))
 
+        # possessions is the OTHER Model v0 input and had no gate at all. A bad
+        # value here moves every projected spread and total on the board.
+        poss = _num(r.get("possessions"))
+        if poss is not None and not (55.0 <= poss <= 115.0):
+            out.append(Finding(WARN, "row.possessions_implausible",
+                               f"{split}/{team}: possessions {poss:g} outside 55..115",
+                               {"split": split, "team": team, "possessions": poss}))
+        if poss is not None and poss <= 0:
+            out.append(Finding(FAIL, "row.possessions_nonpositive",
+                               f"{split}/{team}: possessions {poss:g} is not positive",
+                               {"split": split, "team": team, "possessions": poss}))
+
         # A "lastN" split cannot contain more games than its own window.
         if split.startswith("last"):
             try:
@@ -251,6 +263,15 @@ def check_cross_split(last_rows: Sequence[Row], ytd_rows: Sequence[Row],
 # betting_games
 # --------------------------------------------------------------------------- #
 
+# Every stored American price. Kept as one list so a new moneyline column
+# cannot be added without the gate seeing it.
+MONEYLINE_COLUMNS: tuple[str, ...] = (
+    "open_ml_away", "open_ml_home",
+    "current_ml_away", "current_ml_home",
+    "sharp_ml_away", "sharp_ml_home",
+)
+
+
 def check_betting(rows: Sequence[Row]) -> list[Finding]:
     """Range and uniqueness checks for the published slate.
 
@@ -295,11 +316,52 @@ def check_betting(rows: Sequence[Row]) -> list[Finding]:
                                    f"{key}: {col}={v} exceeds +/-40",
                                    {"game_key": key, "column": col, "value": v}))
 
-        total = _num(r.get("current_total"))
-        if total is not None and not (100.0 <= total <= 220.0):
-            out.append(Finding(WARN, "betting.total_implausible",
-                               f"{key}: current_total={total} outside 100..220",
-                               {"game_key": key, "value": total}))
+        for col in ("open_total", "current_total", "sharp_total"):
+            total = _num(r.get(col))
+            if total is not None and not (100.0 <= total <= 220.0):
+                out.append(Finding(WARN, "betting.total_implausible",
+                                   f"{key}: {col}={total} outside 100..220",
+                                   {"game_key": key, "column": col, "value": total}))
+
+        # Moneylines had NO check at all, while percentages had a FAIL gate —
+        # which is how a truncated "-1,650" published as -1 and stayed. No
+        # American price lies strictly between -100 and +100, or is 0.
+        for col in MONEYLINE_COLUMNS:
+            odds = _num(r.get(col))
+            if odds is not None and abs(odds) < 100.0:
+                out.append(Finding(FAIL, "betting.moneyline_impossible",
+                                   f"{key}: {col}={odds} is not a possible American price",
+                                   {"game_key": key, "column": col, "value": odds}))
+            elif odds is not None and abs(odds) > 20000.0:
+                out.append(Finding(WARN, "betting.moneyline_implausible",
+                                   f"{key}: {col}={odds} exceeds +/-20000",
+                                   {"game_key": key, "column": col, "value": odds}))
+
+        # Two books pricing the same side cannot disagree by an order of
+        # magnitude. This catches a truncation even when the bad value is
+        # individually plausible.
+        for current_col, sharp_col in (("current_ml_away", "sharp_ml_away"),
+                                       ("current_ml_home", "sharp_ml_home")):
+            cur, sharp = _num(r.get(current_col)), _num(r.get(sharp_col))
+            if cur is None or sharp is None or cur == 0 or sharp == 0:
+                continue
+            if (cur > 0) != (sharp > 0):
+                out.append(Finding(WARN, "betting.moneyline_sign_disagreement",
+                                   f"{key}: {current_col}={cur} and {sharp_col}={sharp} "
+                                   "disagree on favourite",
+                                   {"game_key": key, "current": cur, "sharp": sharp}))
+            elif max(abs(cur), abs(sharp)) / min(abs(cur), abs(sharp)) >= 5.0:
+                out.append(Finding(FAIL, "betting.moneyline_magnitude_mismatch",
+                                   f"{key}: {current_col}={cur} vs {sharp_col}={sharp} "
+                                   "differ by 5x or more on the same side",
+                                   {"game_key": key, "current": cur, "sharp": sharp}))
+
+        for col in ("spread_line_move", "total_line_move"):
+            move = _num(r.get(col))
+            if move is not None and abs(move) > 15.0:
+                out.append(Finding(WARN, "betting.line_move_implausible",
+                                   f"{key}: {col}={move} exceeds +/-15",
+                                   {"game_key": key, "column": col, "value": move}))
     return out
 
 
