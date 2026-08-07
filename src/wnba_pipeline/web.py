@@ -92,23 +92,34 @@ def fetch_team_stats(split: str) -> list[dict[str, Any]]:
     )
 
 
-# How far back the slate reaches. The scrapers publish today and tomorrow, and
-# rows are upserted by game_key, so nothing ever removes a finished game: an
-# unfiltered SELECT grows without bound and the page fills up with history under
-# a "current slate" heading. One day of lookback keeps last night's late tip-offs
-# visible (a game starting 23:00 US local is already tomorrow in UTC, and
-# game_date is UTC) without carrying the rest of the season.
-BETTING_LOOKBACK_DAYS = 1
+# How far back the slate reaches, in days before the current Eastern date.
+#
+# ZERO: the board is today and forward. When the calendar date advances in
+# Eastern time, yesterday's games stop appearing.
+#
+# This was 1, justified in a comment claiming "a game starting 23:00 US local
+# is already tomorrow in UTC, and game_date is UTC". That premise is false:
+# game_date is the ET slate date, built from `_et_now` in betting/runner.py, so
+# a 22:00 ET tip-off is stored under ITS OWN Eastern date, not the next one.
+# Verified against every live row, including a 22:00 ET game that is Aug 7 in
+# UTC and correctly stored as Aug 6. With the premise gone the lookback only
+# kept finished games on the board for up to 27 hours.
+#
+# Rows are upserted by game_key and never deleted, so this filter is what stops
+# an unbounded SELECT from filling the page with the whole season.
+BETTING_LOOKBACK_DAYS = 0
 
 
 def slate_floor() -> _dt.date:
     """The earliest ``game_date`` the slate shows, resolved in league time.
 
-    ``CURRENT_DATE`` is the database session's date, which on Railway is UTC.
-    Since ``game_date`` is the ET slate date, a UTC pivot drops last night's
-    slate four hours early — at 20:00 ET, inside the tip-off window. The floor
-    is computed in Python against the league timezone and passed as a bound
-    parameter so the query no longer depends on the server's zone at all.
+    With ``BETTING_LOOKBACK_DAYS = 0`` this is simply today's Eastern date, so
+    the board turns over exactly when the Eastern calendar date does.
+
+    The date is computed in Python against the league timezone, never from
+    ``CURRENT_DATE``: that is the database session's date, which on Railway is
+    UTC, and a UTC pivot would move the boundary at 20:00 ET — inside the
+    tip-off window — rather than at Eastern midnight.
     """
     return pres.slate_today() - _dt.timedelta(days=BETTING_LOOKBACK_DAYS)
 
