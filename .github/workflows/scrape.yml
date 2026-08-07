@@ -173,7 +173,7 @@ jobs:
         # streak went unnoticed here. Same file-or-comment pattern as
         # extract.yml: one open pipeline-alert issue collects every alert.
         if: ${{ failure() }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const betting = '${{ steps.betting.outputs.exit_code }}' || '(step did not run)';
