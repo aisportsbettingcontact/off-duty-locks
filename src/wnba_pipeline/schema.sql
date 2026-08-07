@@ -105,17 +105,7 @@ CREATE INDEX IF NOT EXISTS idx_betting_games_date ON betting_games (game_date);
 -- Added after the table shipped: when VSIN last confirmed this row's splits
 -- and sharp line. ADD COLUMN IF NOT EXISTS is idempotent, so bootstrap_schema
 -- applies it at the next publish with no manual migration.
-ALTER TABLE betting_games ADD COLUMN IF NOT EXISTS vsin_fetched_at_utc TIMESTAMPTZ;
-
--- Model-as-of-capture, added after the table shipped. team_stats is
--- overwrite-in-place, so the inputs Model v0 saw at capture time cannot be
--- reconstructed later — persisting the output here is what makes outcome
--- grading against history possible. signals is a compact JSON array of the
--- fired signal objects.
-ALTER TABLE betting_line_snapshots ADD COLUMN IF NOT EXISTS model_spread DOUBLE PRECISION;
-ALTER TABLE betting_line_snapshots ADD COLUMN IF NOT EXISTS model_total DOUBLE PRECISION;
-ALTER TABLE betting_line_snapshots ADD COLUMN IF NOT EXISTS edge_score DOUBLE PRECISION;
-ALTER TABLE betting_line_snapshots ADD COLUMN IF NOT EXISTS signals TEXT;
+ALTER TABLE IF EXISTS betting_games ADD COLUMN IF NOT EXISTS vsin_fetched_at_utc TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS betting_line_snapshots (
     game_key                TEXT        NOT NULL,
@@ -133,6 +123,22 @@ CREATE TABLE IF NOT EXISTS betting_line_snapshots (
     public_book             TEXT,
     PRIMARY KEY (game_key, captured_at_utc)
 );
+
+-- Model-as-of-capture, added after the table shipped. team_stats is
+-- overwrite-in-place, so the inputs Model v0 saw at capture time cannot be
+-- reconstructed later — persisting the output here is what makes outcome
+-- grading against history possible. signals is a compact JSON array of the
+-- fired signal objects.
+--
+-- These MUST follow the CREATE above: `ADD COLUMN IF NOT EXISTS` guards the
+-- column, not the relation, so it raises on a table that does not exist yet.
+-- `ALTER TABLE IF EXISTS` is the belt-and-suspenders — on a fresh database the
+-- CREATE already includes nothing to add, and on the existing production table
+-- these fill in the new columns at the next publish with no manual migration.
+ALTER TABLE IF EXISTS betting_line_snapshots ADD COLUMN IF NOT EXISTS model_spread DOUBLE PRECISION;
+ALTER TABLE IF EXISTS betting_line_snapshots ADD COLUMN IF NOT EXISTS model_total DOUBLE PRECISION;
+ALTER TABLE IF EXISTS betting_line_snapshots ADD COLUMN IF NOT EXISTS edge_score DOUBLE PRECISION;
+ALTER TABLE IF EXISTS betting_line_snapshots ADD COLUMN IF NOT EXISTS signals TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_line_snapshots_game
     ON betting_line_snapshots (game_key, captured_at_utc);

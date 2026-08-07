@@ -161,3 +161,65 @@ def test_connect_timeout_malformed_env_falls_back_to_default(monkeypatch, junk):
     monkeypatch.setenv("ODL_DB_CONNECT_TIMEOUT", junk)
     assert db.connect() == "conn"
     assert calls["connect_timeout"] == 5
+
+
+def test_schema_alters_never_precede_their_create():
+    """Every ALTER TABLE must run after the CREATE TABLE for the same relation.
+
+    REGRESSION: the model-snapshot columns were added as `ALTER TABLE ... ADD
+    COLUMN IF NOT EXISTS` placed ABOVE the CREATE for betting_line_snapshots.
+    `ADD COLUMN IF NOT EXISTS` guards the column, not the relation, so on a
+    fresh database bootstrap_schema raised "relation does not exist" at the
+    first ALTER and created nothing — breaking every new environment and DR
+    restore. This asserts the invariant structurally, since the suite mocks the
+    DB and never executes real DDL.
+    """
+    import re
+    from wnba_pipeline.db import _split_statements, SCHEMA_PATH
+
+    created: set[str] = set()
+    for stmt in _split_statements(SCHEMA_PATH.read_text(encoding="utf-8")):
+        cm = re.search(r"CREATE TABLE IF NOT EXISTS (\w+)", stmt)
+        if cm:
+            created.add(cm.group(1))
+        am = re.search(r"ALTER TABLE (?:IF EXISTS )?(\w+)", stmt)
+        if am:
+            assert am.group(1) in created, (
+                f"ALTER TABLE {am.group(1)} runs before its CREATE — bootstrap "
+                "would raise 'relation does not exist' on a fresh database")
+
+
+def test_bootstrap_runs_the_full_schema_in_order_against_a_fresh_db():
+    """Exercise bootstrap_schema against a fake DB that models Postgres's rule:
+    ALTER on a not-yet-created table raises. Proves fresh-DB bootstrap survives,
+    not just that the statement order looks right."""
+    import re
+    from wnba_pipeline.db import bootstrap_schema
+
+    tables: set[str] = set()
+
+    class Cur:
+        def execute(self, sql, params=()):
+            cm = re.search(r"CREATE TABLE IF NOT EXISTS (\w+)", sql)
+            if cm:
+                tables.add(cm.group(1))
+                return
+            am = re.search(r"ALTER TABLE (IF EXISTS )?(\w+)", sql)
+            if am:
+                if am.group(2) not in tables and not am.group(1):
+                    raise RuntimeError(f'relation "{am.group(2)}" does not exist')
+                return
+            # CREATE INDEX on a missing table would also raise in Postgres.
+            im = re.search(r"CREATE INDEX IF NOT EXISTS \w+\s+ON (\w+)", sql)
+            if im and im.group(1) not in tables:
+                raise RuntimeError(f'relation "{im.group(1)}" does not exist')
+
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    class Conn:
+        def cursor(self): return Cur()
+        def commit(self): pass
+
+    bootstrap_schema(Conn())  # must not raise
+    assert {"team_stats", "betting_games", "betting_line_snapshots"} <= tables
