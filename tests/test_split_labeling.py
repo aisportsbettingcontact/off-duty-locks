@@ -20,6 +20,7 @@ import json
 import pytest
 
 from wnba_pipeline import __main__ as cli
+from wnba_pipeline import presentation as pres
 from wnba_pipeline import web
 
 
@@ -158,9 +159,34 @@ def test_slate_floor_is_lookback_days_before_league_today():
         days=web.BETTING_LOOKBACK_DAYS)
 
 
-def test_lookback_keeps_late_tipoffs():
-    """A full day of lookback, so a game that rolls past midnight UTC survives."""
-    assert web.BETTING_LOOKBACK_DAYS >= 1
+def test_the_board_turns_over_on_the_eastern_calendar_date():
+    """Yesterday's games stop appearing the moment the Eastern date advances.
+
+    This replaces a test asserting a full day of lookback, whose stated reason
+    was that "a game rolls past midnight UTC". That premise was false —
+    game_date is the ET slate date (betting/runner.py builds it from _et_now),
+    so a late tip-off is stored under its own Eastern date and never rolls. The
+    lookback only kept finished games on the board for up to 27 hours.
+    """
+    assert web.BETTING_LOOKBACK_DAYS == 0
+    assert web.slate_floor() == pres.slate_today()
+
+
+def test_a_game_from_yesterday_is_outside_the_window():
+    import datetime as datetime_mod
+    yesterday = pres.slate_today() - datetime_mod.timedelta(days=1)
+    assert yesterday < web.slate_floor(), "yesterday must fall outside the slate"
+
+
+def test_the_boundary_moves_at_eastern_midnight_not_utc_midnight():
+    """04:00 UTC is Eastern midnight in EDT: the board must turn over there,
+    not four hours earlier at 20:00 ET while games are still tipping off."""
+    import datetime as datetime_mod
+    utc = datetime_mod.timezone.utc
+    late_evening_et = datetime_mod.datetime(2026, 8, 8, 3, 30, tzinfo=utc)  # 23:30 ET Aug 7
+    after_et_midnight = datetime_mod.datetime(2026, 8, 8, 4, 30, tzinfo=utc)  # 00:30 ET Aug 8
+    assert pres.slate_today(late_evening_et) == datetime_mod.date(2026, 8, 7)
+    assert pres.slate_today(after_et_midnight) == datetime_mod.date(2026, 8, 8)
 
 
 # --------------------------------------------------------------------------- #
