@@ -464,6 +464,11 @@ STATS_STALE_AFTER_HOURS = 24.0
 # none of the three.
 BETTING_STALE_AFTER_HOURS = 2.0
 
+# How far a single card may lag the board's newest row before it says so. A
+# finished game legitimately stops updating, so this is a statement about that
+# card's numbers, not about the health of the feed.
+CARD_STALE_AFTER_HOURS = 2.0
+
 # VSIN-derived values (splits, sharp line, RLM) COALESCE-preserve on a miss, so
 # they can outlive the market they describe. Past this a card says how old they
 # actually are rather than presenting them beside fresh Action Network lines.
@@ -500,7 +505,8 @@ def _team_view(game: Mapping[str, Any], side: str,
 
 def build_game_views(games: list[dict[str, Any]],
                      stats: Mapping[str, Mapping[str, Any]],
-                     season_rows: list[dict[str, Any]] | None = None
+                     season_rows: list[dict[str, Any]] | None = None,
+                     newest_fetch: str | None = None
                      ) -> list[dict[str, Any]]:
     """Enriched game rows -> everything the game component renders.
 
@@ -563,9 +569,20 @@ def build_game_views(games: list[dict[str, Any]],
             game.get("status"), game.get("start_time"), game.get("fetched_at_utc"))
 
         vsin_age = _age_hours(game.get("vsin_fetched_at_utc"))
+        # Hours this card lags the FRESHEST row on the board. A completed game
+        # stops being carried by Action Network, so its own stamp freezes —
+        # that is exactly the row whose numbers must not read as current.
+        lag = None
+        if newest_fetch and game.get("fetched_at_utc"):
+            own = _age_hours(game.get("fetched_at_utc"))
+            board = _age_hours(newest_fetch)
+            if own is not None and board is not None:
+                lag = own - board
         views.append({
             "key": game.get("game_key"),
             "fetched_age_hours": _age_hours(game.get("fetched_at_utc")),
+            "stale_hours": (round(lag) if lag is not None
+                            and lag >= CARD_STALE_AFTER_HOURS else None),
             "vsin_fetched_at_utc": game.get("vsin_fetched_at_utc"),
             "vsin_stale_hours": (round(vsin_age) if vsin_age is not None
                                  and vsin_age >= VSIN_STALE_AFTER_HOURS else None),
@@ -640,17 +657,27 @@ def index():
         logger.warning("dashboard queries failed: %s", exc)
         db_ok = False
 
-    views = build_game_views(games, stats, ytd)
+    newest_fetch = max(
+        (str(g.get("fetched_at_utc")) for g in games if g.get("fetched_at_utc")),
+        default="")
+    views = build_game_views(games, stats, ytd, newest_fetch or None)
     groups = pres.group_by_date(views, today=pres.slate_today())
     ranked, scale = pres.rankings_view_with_scale(last7, ytd)
     for row in ranked:
         row["logo"] = _logo_for_name(row.get("team_name"))
 
-    # The OLDEST row on the board, not the newest. max() let one refreshed game
-    # stamp the whole page: an 8-hour-old row rendered under a 6-minute-old
-    # header. This is the same law _older_iso already applies to team stats.
+    # The NEWEST row, because this stamp answers "is the feed alive?" — and a
+    # feed that delivered a minute ago is alive even when the board still
+    # carries last night's finished games.
+    #
+    # An earlier fix used min() here, reasoning that the newest row should not
+    # stamp the whole page. That over-corrected: completed games stop being
+    # carried by Action Network, so their fetched_at_utc freezes forever and
+    # min() reported a healthy board as 17 hours stale. The real problem it was
+    # aimed at — one old row reading as current — is solved per CARD instead
+    # (``stale_hours`` below), which is where the claim actually belongs.
     stamps = [str(g.get("fetched_at_utc")) for g in games if g.get("fetched_at_utc")]
-    updated = min(stamps) if stamps else ""
+    updated = max(stamps) if stamps else ""
     betting_age = _age_hours(updated)
     betting_stale_hours = (round(betting_age)
                            if betting_age is not None
