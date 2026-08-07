@@ -78,13 +78,31 @@ def parse_splits(html: str, *, sport: str = "WNBA") -> list[VsinGame]:
         header = table.select_one("th.sp-sport-name")
         if not header or sport not in header.get_text():
             continue
+        # Group the two rows of a game by their SHARED gamecode rather than by
+        # position. Positional pairing (rows 0/1, 2/3, ...) desynchronises on a
+        # single unexpected row and then pairs one game's away row with the
+        # next game's home row — publishing a matchup that does not exist,
+        # with one team's own price as its opponent's. Both rows carry the same
+        # data-gamecode, so grouping cannot desynchronise.
         rows = table.select("tr.sp-row")
-        for i in range(0, len(rows) - 1, 2):
-            away_row, home_row = rows[i], rows[i + 1]
-            button = away_row.select_one("button[data-gamecode]")
-            gamecode = button.get("data-gamecode") if button else None
-            if not gamecode or sport not in gamecode:
+        grouped: dict[str, list[Any]] = {}
+        unpaired = 0
+        for row in rows:
+            button = row.select_one("button[data-gamecode]")
+            code = button.get("data-gamecode") if button else None
+            if not code or sport not in code:
+                unpaired += 1
                 continue
+            grouped.setdefault(code, []).append(row)
+
+        for gamecode, members in grouped.items():
+            if len(members) != 2:
+                unpaired += len(members)
+                logger.warning(
+                    "VSIN game %s: expected 2 rows, found %d; skipping",
+                    gamecode, len(members))
+                continue
+            away_row, home_row = members
             away_link = away_row.select_one("a.sp-team-link")
             home_link = home_row.select_one("a.sp-team-link")
             if not away_link or not home_link:
@@ -114,6 +132,11 @@ def parse_splits(html: str, *, sport: str = "WNBA") -> list[VsinGame]:
                     ml_pct_bets_away=parse_percent(_cell_text(away_tds[_TD_ML_BETS])),
                 )
             )
+        if unpaired:
+            # Loud, because a shape change here is how a fabricated matchup
+            # would reach the board.
+            logger.warning(
+                "VSIN %s: %d row(s) could not be paired to a game", sport, unpaired)
     return out
 
 

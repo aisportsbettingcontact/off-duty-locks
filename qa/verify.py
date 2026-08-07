@@ -360,6 +360,43 @@ def section_automation(repo: Path, rep: Report) -> None:
     for f in (ci, extract, live):
         if f.exists() and re.search(r"(?i)(password|api[_-]?key)\s*[:=]\s*['\"]", f.read_text()):
             problems.append(f"{f.name}: possible plaintext secret")
+
+    # Every alert step must carry a status function in its `if`. GitHub implies
+    # success() when none is present, so an alert gated only on a step's output
+    # files NOTHING when the job dies earlier — at checkout, on a --require-hashes
+    # break, or on a rotated secret. data-audit.yml shipped exactly that defect
+    # while extract.yml documented and fixed it, and data-audit is the only
+    # check that reads production data.
+    alert_ok = True
+    for name in ("extract.yml", "data-audit.yml", "scrape.yml"):
+        path = repo / ".github/workflows" / name
+        if not path.exists():
+            continue
+        text = path.read_text()
+        for block in re.findall(
+                r"- name: [^\n]*[Aa]lert[^\n]*\n(.*?)(?=\n      - name:|\Z)",
+                text, re.DOTALL):
+            condition = re.search(r"if:\s*(.+)", block)
+            if condition is None:
+                continue
+            expr = condition.group(1)
+            # A resolve-on-success step legitimately gates on success().
+            if not re.search(r"failure\(\)|always\(\)|success\(\)", expr):
+                alert_ok = False
+                problems.append(
+                    f"{name}: an alert step's `if:` has no status function, so "
+                    "GitHub implies success() and infra failures file no alert")
+    checks["alert_steps_have_status_functions"] = alert_ok
+
+    # The shared alert module must exist and must key its dedupe, or the
+    # any-open-issue behaviour that buried 17 alerts on one 2026-07-21 issue
+    # comes straight back.
+    alert_script = repo / ".github/scripts/pipeline-alert.js"
+    checks["alert_dedupe_is_keyed"] = (
+        alert_script.exists() and "alert-key" in alert_script.read_text())
+    if not checks["alert_dedupe_is_keyed"]:
+        problems.append("pipeline-alert.js missing or its dedupe is not keyed")
+
     status = PASS if not problems else FAIL
     rep.add("g_automation_audit", status, {"checks": checks, "problems": problems})
 

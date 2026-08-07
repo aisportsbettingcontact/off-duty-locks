@@ -283,17 +283,31 @@ def _cmd_validate_data(args: argparse.Namespace) -> int:
     from wnba_pipeline import db
     from wnba_pipeline.runner import EXPECTED_TEAMS_FIXTURE_DIR
 
+    # The fixture stores {"teams": {team_id: team_name}} — a DICT, which is what
+    # teams._load_fallback requires and what expected_teams_version hashes. This
+    # reader only accepted a list, so `expected` was always None and the two
+    # FAIL checks gated on it (split.missing_teams / split.unexpected_teams)
+    # have never run in production. Worse, the report then said
+    # "expected teams : unknown (no fixture)", which reads as a benign config
+    # gap rather than a dead check — so nobody investigated.
     expected: list[str] | None = None
+    expected_source = "absent"
     fixture = EXPECTED_TEAMS_FIXTURE_DIR / f"{args.season}.json"
     if fixture.exists():
+        expected_source = "unreadable"
         try:
             blob = json.loads(fixture.read_text(encoding="utf-8"))
             teams = blob.get("teams") if isinstance(blob, dict) else blob
-            if isinstance(teams, list):
-                expected = [t.get("team_name") if isinstance(t, dict) else str(t)
-                            for t in teams]
-                expected = [t for t in expected if t]
-        except (OSError, json.JSONDecodeError, AttributeError):
+            names: list[str] = []
+            if isinstance(teams, dict):
+                names = [str(v) for v in teams.values() if v]
+            elif isinstance(teams, list):
+                names = [str(t.get("team_name") if isinstance(t, dict) else t)
+                         for t in teams]
+            names = [n for n in names if n]
+            if names:
+                expected, expected_source = names, "fixture"
+        except (OSError, json.JSONDecodeError, AttributeError, TypeError):
             expected = None
 
     try:
@@ -343,8 +357,16 @@ def _cmd_validate_data(args: argparse.Namespace) -> int:
         print("=" * width)
         print(f"  splits           : {', '.join(splits) or '(none)'}")
         print(f"  betting rows     : {len(betting)}")
-        print(f"  expected teams   : "
-              f"{len(expected) if expected else 'unknown (no fixture)'}")
+        # "no fixture" and "the fixture could not be read" are different
+        # problems and only one of them is benign. Saying which is what turns a
+        # dead check into a visible one.
+        _EXPECTED_WORDING = {
+            "fixture": lambda: f"{len(expected)}",
+            "absent": lambda: "unknown (no fixture for this season)",
+            "unreadable": lambda: "unknown (FIXTURE PRESENT BUT UNREADABLE — "
+                                  "team completeness checks are NOT running)",
+        }
+        print(f"  expected teams   : {_EXPECTED_WORDING[expected_source]()}")
         print("-" * width)
         for sev in (dq.FAIL, dq.WARN, dq.INFO):
             group = [f for f in findings if f.severity == sev]
@@ -448,6 +470,75 @@ def _cmd_repair_data(args: argparse.Namespace) -> int:
             print(f"  remaining        : {remaining} rows in '{target}'")
             print(f"  RESULT: APPLIED — '{target}' removed; the site now renders an "
                   "empty state there instead of mislabelled numbers")
+            return EXIT_OK
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _cmd_repair_odds(args: argparse.Namespace) -> int:
+    """NULL stored moneylines that are not possible American prices.
+
+    The parser guard stops new corruption, but it cannot clean what is already
+    stored: the ``sharp_ml_*`` columns are in ``VSIN_PRESERVE_COLUMNS`` and
+    upsert through COALESCE, so a NULL from a later scrape keeps the old value
+    forever — and a completed game drops off VSIN's board entirely, so no later
+    scrape will ever carry a replacement. Without this the wrong number is
+    permanent.
+
+    Dry run by default; ``--yes`` applies. Only ever writes NULL — it never
+    invents a corrected price.
+    """
+    from wnba_pipeline import dataquality as dq
+    from wnba_pipeline import db
+
+    url = args.database_url or os.environ.get("DATABASE_URL")
+    if not url:
+        print("repair-odds: no database URL (pass --database-url or set DATABASE_URL)")
+        return EXIT_CONFIG_ERROR
+
+    cols = dq.MONEYLINE_COLUMNS
+    conn = db.connect(url)
+    try:
+        with conn, conn.cursor() as cur:
+            width = 78
+            print("=" * width)
+            print("  repair-odds — NULL impossible American prices")
+            print("=" * width)
+
+            predicate = " OR ".join(
+                f"({c} IS NOT NULL AND ({c} = 0 OR abs({c}) < 100))" for c in cols)
+            cur.execute(
+                f"SELECT game_key, {', '.join(cols)} FROM betting_games "
+                f"WHERE {predicate} ORDER BY game_key")
+            rows = cur.fetchall()
+            if not rows:
+                print("  RESULT: CLEAN — no impossible moneylines stored.")
+                return EXIT_OK
+
+            affected = 0
+            for row in rows:
+                key, values = row[0], row[1:]
+                for col, value in zip(cols, values):
+                    if value is not None and (value == 0 or abs(value) < 100):
+                        affected += 1
+                        print(f"    {key:<28} {col:<18} {value}  -> NULL")
+
+            if not args.yes:
+                print("-" * width)
+                print(f"  RESULT: DRY RUN — would NULL {affected} value(s) across "
+                      f"{len(rows)} row(s). Re-run with --yes to apply.")
+                return EXIT_OK
+
+            sets = ", ".join(
+                f"{c} = CASE WHEN {c} = 0 OR abs({c}) < 100 THEN NULL ELSE {c} END"
+                for c in cols)
+            cur.execute(f"UPDATE betting_games SET {sets} WHERE {predicate}")
+            print("-" * width)
+            print(f"  RESULT: APPLIED — {affected} value(s) NULLed across "
+                  f"{cur.rowcount} row(s); the site renders an em-dash there.")
             return EXIT_OK
     finally:
         try:
@@ -733,6 +824,15 @@ def build_parser() -> argparse.ArgumentParser:
     rp_p.add_argument("--yes", action="store_true",
                       help="actually delete; without this the command only reports")
     rp_p.set_defaults(func=_cmd_repair_data)
+
+    # repair-odds: NULL stored prices the parser guard would now reject.
+    ro_p = sub.add_parser(
+        "repair-odds",
+        help="NULL stored moneylines that are not possible American prices")
+    ro_p.add_argument("--database-url", default=None)
+    ro_p.add_argument("--yes", action="store_true",
+                      help="apply the repair (default is a dry run)")
+    ro_p.set_defaults(func=_cmd_repair_odds)
 
     # betting: VSIN + Action Network -> betting_games.
     bet_p = sub.add_parser(

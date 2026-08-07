@@ -517,3 +517,102 @@ def test_game_ids_are_dom_safe_and_deep_linkable(client, monkeypatch):
     assert 'id="game-2026-08-07-la-min"' in html
     assert 'id="analysis-2026-08-07-la-min"' in html
     assert 'aria-controls="analysis-2026-08-07-la-min"' in html
+
+
+def test_page_stamp_is_the_oldest_row_not_the_newest(client, monkeypatch):
+    """PRODUCTION DEFECT: max() let one refreshed game stamp the whole board.
+
+    Live at 11:46Z the header read 11:30:52Z while three cards carried their own
+    fetched_at_utc of 03:31:58Z — an 8-hour-old row under a 6-minute-old stamp.
+    """
+    old, new = "2026-08-07T03:31:58+00:00", "2026-08-07T12:01:51+00:00"
+    _slate(monkeypatch, games=[dict(GAME_ROW, game_key="a", fetched_at_utc=old),
+                               dict(GAME_ROW, game_key="b", fetched_at_utc=new)])
+    html = client.get("/").data.decode()
+    assert f'id="updated" data-iso="{old}"' in html
+    assert new not in html.split('id="updated"')[1][:120]
+
+
+def test_a_stale_board_says_so(client, monkeypatch):
+    import datetime as dt
+    stale = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=5)).isoformat()
+    _slate(monkeypatch, games=[dict(GAME_ROW, fetched_at_utc=stale)])
+    html = client.get("/").data.decode()
+    assert "has not refreshed for" in html
+
+
+def test_a_fresh_board_raises_no_notice(client, monkeypatch):
+    import datetime as dt
+    fresh = dt.datetime.now(dt.timezone.utc).isoformat()
+    _slate(monkeypatch, games=[dict(GAME_ROW, fetched_at_utc=fresh)])
+    assert "has not refreshed for" not in client.get("/").data.decode()
+
+
+def test_preserved_vsin_values_carry_their_own_age(client, monkeypatch):
+    """A sharp price and an RLM badge must not read as current when VSIN last
+    confirmed them hours ago — the columns COALESCE-preserve, so nothing else
+    on the card reveals it."""
+    import datetime as dt
+    now = dt.datetime.now(dt.timezone.utc)
+    _slate(monkeypatch, games=[dict(
+        GAME_ROW,
+        fetched_at_utc=now.isoformat(),
+        vsin_fetched_at_utc=(now - dt.timedelta(hours=9)).isoformat())])
+    html = client.get("/").data.decode()
+    assert "9h old" in html
+
+
+def test_team_record_is_omitted_rather_than_taken_from_the_wrong_window(client, monkeypatch):
+    """With no season split there is no season record, so none is claimed."""
+    _slate(monkeypatch, ytd=[])
+    html = client.get("/").data.decode()
+    assert "team__record" not in html
+    assert ">1-6<" not in html and ">7-0<" not in html   # the last-7 window
+
+
+def test_tables_declares_stale_statistics_like_the_other_pages(client, monkeypatch):
+    """/tables is one click from every page and rendered 72h-old rows silently
+    while / and /rankings both disclosed them."""
+    _slate(monkeypatch)
+    monkeypatch.setattr(web, "fetch_status_counts", lambda: {
+        "betting_rows": 1, "betting_fetched_at_utc": "2026-08-07T09:01:50+00:00",
+        "last7_rows": 2, "last7_updated_at": "2026-08-04T11:23:56+00:00",
+        "ytd_rows": 2, "ytd_updated_at": "2026-08-04T11:24:15+00:00"})
+    html = client.get("/tables").data.decode()
+    assert "hours old" in html
+    for path in ("/", "/rankings", "/tables"):
+        assert "hours old" in client.get(path).data.decode(), f"{path} hides staleness"
+
+
+def test_betting_select_survives_a_database_without_the_new_column(client, monkeypatch):
+    """Deploy-order safety.
+
+    `vsin_fetched_at_utc` is created by bootstrap_schema, which only the WRITE
+    path runs. Between a web deploy and the next publish the read path would
+    otherwise name a column the database does not have, and the whole board
+    would render its outage state.
+    """
+    calls = []
+
+    def fake_rows(sql, params=()):
+        calls.append(sql)
+        if "vsin_fetched_at_utc" in sql:
+            raise RuntimeError('column "vsin_fetched_at_utc" does not exist')
+        return [{"game_key": "k", "game_date": "2026-08-07"}]
+
+    monkeypatch.setattr(web, "_rows", fake_rows)
+    rows = web.fetch_betting()
+    assert rows and rows[0]["game_key"] == "k"
+    assert len(calls) == 2, "expected one failed attempt then one legacy retry"
+    assert "vsin_fetched_at_utc" not in calls[1]
+
+
+def test_betting_select_does_not_mask_a_real_database_failure(client, monkeypatch):
+    """The retry is scoped to the optional column, not a blanket except."""
+    def always_boom(sql, params=()):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(web, "_rows", always_boom)
+    monkeypatch.setattr(web, "_OPTIONAL_BETTING_COLUMNS", ())
+    with pytest.raises(RuntimeError, match="connection refused"):
+        web.fetch_betting()

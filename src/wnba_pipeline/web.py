@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import logging
+import os
 import re
 from decimal import Decimal
 from html import escape
@@ -39,6 +40,18 @@ app = Flask(__name__)
 app.config["JSON_SORT_KEYS"] = False
 
 VALID_SPLITS = ("last7", "ytd")
+
+# Which commit is actually serving. Railway injects RAILWAY_GIT_COMMIT_SHA on
+# every build; without a stamp the only way to tell what is deployed is to
+# byte-compare static assets against a checkout, which is how a shipped
+# regression went unnoticed. Falls back to "unknown" rather than guessing.
+BUILD_SHA = (
+    os.environ.get("RAILWAY_GIT_COMMIT_SHA")
+    or os.environ.get("GIT_COMMIT_SHA")
+    or os.environ.get("SOURCE_COMMIT")
+    or "unknown"
+)
+BUILD_SHORT = BUILD_SHA[:12] if BUILD_SHA != "unknown" else "unknown"
 
 # Columns surfaced for team stats (order = display order).
 TEAM_COLUMNS = (
@@ -88,15 +101,48 @@ def fetch_team_stats(split: str) -> list[dict[str, Any]]:
 BETTING_LOOKBACK_DAYS = 1
 
 
+def slate_floor() -> _dt.date:
+    """The earliest ``game_date`` the slate shows, resolved in league time.
+
+    ``CURRENT_DATE`` is the database session's date, which on Railway is UTC.
+    Since ``game_date`` is the ET slate date, a UTC pivot drops last night's
+    slate four hours early — at 20:00 ET, inside the tip-off window. The floor
+    is computed in Python against the league timezone and passed as a bound
+    parameter so the query no longer depends on the server's zone at all.
+    """
+    return pres.slate_today() - _dt.timedelta(days=BETTING_LOOKBACK_DAYS)
+
+
+# Columns added after the table shipped. `bootstrap_schema` creates them via
+# ADD COLUMN IF NOT EXISTS, but only the WRITE path runs it — so between a web
+# deploy and the next publish the read path can name a column the database does
+# not have yet. Selecting them optionally removes that ordering hazard entirely:
+# the site serves correctly either side of the migration, and the fallback stops
+# being exercised as soon as one publish has run.
+_OPTIONAL_BETTING_COLUMNS = ("vsin_fetched_at_utc",)
+
+
 def fetch_betting() -> list[dict[str, Any]]:
     """The current slate: games from the last ``BETTING_LOOKBACK_DAYS`` onward."""
-    cols = ", ".join(db.BETTING_GAMES_COLUMNS)
-    return _rows(
-        f"SELECT {cols} FROM betting_games "
-        "WHERE game_date >= CURRENT_DATE - %s::integer "
-        "ORDER BY game_date, game_key",
-        (BETTING_LOOKBACK_DAYS,),
-    )
+    def _select(columns: tuple[str, ...]) -> list[dict[str, Any]]:
+        return _rows(
+            f"SELECT {', '.join(columns)} FROM betting_games "
+            "WHERE game_date >= %s "
+            "ORDER BY game_date, game_key",
+            (slate_floor(),),
+        )
+
+    try:
+        return _select(db.BETTING_GAMES_COLUMNS)
+    except Exception as exc:  # noqa: BLE001 - narrowed by the retry below
+        legacy = tuple(c for c in db.BETTING_GAMES_COLUMNS
+                       if c not in _OPTIONAL_BETTING_COLUMNS)
+        if len(legacy) == len(db.BETTING_GAMES_COLUMNS):
+            raise
+        logger.warning(
+            "betting select failed (%s); retrying without %s — the schema "
+            "migration has not run yet", exc, _OPTIONAL_BETTING_COLUMNS)
+        return _select(legacy)
 
 
 def fetch_stats_by_team(split: str = "last7") -> dict[str, dict[str, Any]]:
@@ -118,14 +164,14 @@ def fetch_status_counts() -> dict[str, Any]:
     return _rows(
         "SELECT "
         "(SELECT count(*) FROM betting_games "
-        " WHERE game_date >= CURRENT_DATE - %s::integer) AS betting_rows, "
+        " WHERE game_date >= %s) AS betting_rows, "
         "(SELECT max(fetched_at_utc) FROM betting_games "
-        " WHERE game_date >= CURRENT_DATE - %s::integer) AS betting_fetched_at_utc, "
+        " WHERE game_date >= %s) AS betting_fetched_at_utc, "
         "(SELECT count(*) FROM team_stats WHERE split = 'last7') AS last7_rows, "
         "(SELECT max(updated_at) FROM team_stats WHERE split = 'last7') AS last7_updated_at, "
         "(SELECT count(*) FROM team_stats WHERE split = 'ytd') AS ytd_rows, "
         "(SELECT max(updated_at) FROM team_stats WHERE split = 'ytd') AS ytd_updated_at",
-        (BETTING_LOOKBACK_DAYS, BETTING_LOOKBACK_DAYS),
+        (slate_floor(), slate_floor()),
     )[0]
 
 
@@ -169,6 +215,12 @@ def fetch_line_history(game_key: str) -> dict[str, Any] | None:
     return {"game_key": game_key, "opening": opening[0], "snapshots": snapshots}
 
 
+@app.context_processor
+def _build_context():
+    """Every page can state which commit rendered it."""
+    return {"build_sha": BUILD_SHORT}
+
+
 @app.after_request
 def _security_headers(response):
     """Baseline security headers on every response.
@@ -209,12 +261,13 @@ def api_status():
         row = fetch_status_counts()
     except Exception as exc:  # noqa: BLE001 - never leak internals to clients
         logger.warning("status query failed: %s", exc)
-        resp = jsonify({"now": now, "db_ok": False,
+        resp = jsonify({"now": now, "build": BUILD_SHORT, "db_ok": False,
                         "betting": None, "team_stats": None})
         resp.headers["Cache-Control"] = "no-store"
         return resp, 503
     resp = jsonify({
         "now": now,
+        "build": BUILD_SHORT,
         "db_ok": True,
         "betting": {
             "rows": row["betting_rows"],
@@ -244,7 +297,8 @@ def api_team_stats():
 @app.get("/api/betting")
 def api_betting():
     try:
-        games = enrich_games(fetch_betting(), fetch_stats_by_team("last7"))
+        games = enrich_games(fetch_betting(), fetch_stats_by_team("last7"),
+                             fetch_stats_by_team("ytd"))
         return jsonify({"games": games})
     except Exception as exc:  # noqa: BLE001
         logger.warning("betting query failed: %s", exc)
@@ -388,10 +442,16 @@ def _age_hours(iso: Any) -> float | None:
 # rather than letting a dated projection read as current.
 STATS_STALE_AFTER_HOURS = 24.0
 
+# The odds feed publishes every 30 minutes. Past this the board is not "the
+# current market" any more and must say so. Team stats had a threshold, a
+# banner and an "older-of-two" stamp while the higher-stakes odds surface had
+# none of the three.
+BETTING_STALE_AFTER_HOURS = 2.0
 
-# Display copy for the betting feed's raw status tokens.
-STATUS_LABELS = {"complete": "Final", "inprogress": "Live"}
-_FINAL_STATUSES = {"complete", "final"}
+# VSIN-derived values (splits, sharp line, RLM) COALESCE-preserve on a miss, so
+# they can outlive the market they describe. Past this a card says how old they
+# actually are rather than presenting them beside fresh Action Network lines.
+VSIN_STALE_AFTER_HOURS = 3.0
 
 
 def _team_view(game: Mapping[str, Any], side: str,
@@ -406,8 +466,11 @@ def _team_view(game: Mapping[str, Any], side: str,
     row = stats_row or {}
     abbr = game.get(f"{side}_abbr")
     city, nick = _split_team_name(row.get("team_name"), game.get(f"{side}_name"))
-    record_row = season_row if season_row is not None else row
-    wins, losses = record_row.get("wins"), record_row.get("losses")
+    # Season record or nothing. The last-7 row's wins/losses count only games
+    # inside that window; rendering them where a season record belongs is the
+    # same wrong claim in different clothes.
+    season = season_row or {}
+    wins, losses = season.get("wins"), season.get("losses")
     return {
         "abbr": abbr,
         "city": city,
@@ -480,14 +543,23 @@ def build_game_views(games: list[dict[str, Any]],
             ) if part
         )
 
+        status_text = pres.status_label(
+            game.get("status"), game.get("start_time"), game.get("fetched_at_utc"))
+
+        vsin_age = _age_hours(game.get("vsin_fetched_at_utc"))
         views.append({
             "key": game.get("game_key"),
+            "fetched_age_hours": _age_hours(game.get("fetched_at_utc")),
+            "vsin_fetched_at_utc": game.get("vsin_fetched_at_utc"),
+            "vsin_stale_hours": (round(vsin_age) if vsin_age is not None
+                                 and vsin_age >= VSIN_STALE_AFTER_HOURS else None),
             "slug": _slug(game.get("game_key")),
             "game_date": game.get("game_date"),
             "time_text": _et_time(game.get("start_time"), game.get("game_date")),
             "date_text": str(game.get("game_date") or "") or None,
-            "status_text": STATUS_LABELS.get(str(game.get("status") or "").lower()),
-            "is_final": str(game.get("status") or "").lower() in _FINAL_STATUSES,
+            "status_text": status_text,
+            "is_final": status_text in ("Final", "Postponed", "Canceled"),
+            "is_live": status_text == "Live",
             "away": away,
             "home": home,
             "markets": {
@@ -544,7 +616,8 @@ def index():
     stats: dict[str, dict[str, Any]] = {}
     try:
         stats = fetch_stats_by_team("last7")
-        games = enrich_games(fetch_betting(), stats)
+        season_stats = fetch_stats_by_team("ytd")
+        games = enrich_games(fetch_betting(), stats, season_stats)
         last7 = fetch_team_stats("last7")
         ytd = fetch_team_stats("ytd")
     except Exception as exc:  # noqa: BLE001 - render an empty state, not a 500
@@ -552,12 +625,20 @@ def index():
         db_ok = False
 
     views = build_game_views(games, stats, ytd)
-    groups = pres.group_by_date(views)
+    groups = pres.group_by_date(views, today=pres.slate_today())
     ranked, scale = pres.rankings_view_with_scale(last7, ytd)
     for row in ranked:
         row["logo"] = _logo_for_name(row.get("team_name"))
 
-    updated = max((str(g.get("fetched_at_utc") or "") for g in games), default="")
+    # The OLDEST row on the board, not the newest. max() let one refreshed game
+    # stamp the whole page: an 8-hour-old row rendered under a 6-minute-old
+    # header. This is the same law _older_iso already applies to team stats.
+    stamps = [str(g.get("fetched_at_utc")) for g in games if g.get("fetched_at_utc")]
+    updated = min(stamps) if stamps else ""
+    betting_age = _age_hours(updated)
+    betting_stale_hours = (round(betting_age)
+                           if betting_age is not None
+                           and betting_age >= BETTING_STALE_AFTER_HOURS else None)
     stats_iso, stale_hours, stats_human = _stats_freshness(db_ok)
 
     return render_template(
@@ -565,6 +646,7 @@ def index():
         page="dashboard",
         groups=groups,
         game_count=len(views),
+        betting_stale_hours=betting_stale_hours,
         rankings=ranked[:5],
         scale=scale,
         db_ok=db_ok,
@@ -598,7 +680,8 @@ def rankings():
     # Form always reads "this window vs the season", whichever window is shown;
     # on the season view the two are the same split, so no form is derivable.
     ranked, scale = pres.rankings_view_with_scale(
-        primary, comparison if split == "last7" else [])
+        primary, comparison if split == "last7" else [],
+        primary_is_season=(split == "ytd"))
     for row in ranked:
         row["logo"] = _logo_for_name(row.get("team_name"))
 
@@ -631,7 +714,12 @@ def tables():
     except Exception as exc:  # noqa: BLE001 - render an empty state, not a 500
         logger.warning("tables query failed: %s", exc)
         last7, ytd, betting, db_ok = [], [], [], False
-    return _render_page(last7, ytd, betting, db_ok)
+    # The legacy page renders the same stale rows the other two disclose. A
+    # reader who has learned to trust the dashboard's honesty has no reason to
+    # suspect this page, which makes silence here worse than it looks.
+    _iso, stats_stale_hours, stats_updated_text = _stats_freshness(db_ok)
+    return _render_page(last7, ytd, betting, db_ok,
+                        stats_stale_hours, stats_updated_text)
 
 
 def _fmt(value: Any, nd: int = 1) -> str:
@@ -703,8 +791,16 @@ def _betting_table(rows: list[dict[str, Any]]) -> str:
     return f"<table><thead><tr>{ths}</tr></thead><tbody>{''.join(body)}</tbody></table>"
 
 
-def _render_page(last7, ytd, betting, db_ok: bool) -> str:
+def _render_page(last7, ytd, betting, db_ok: bool,
+                 stats_stale_hours: float | None = None,
+                 stats_updated_text: str = "") -> str:
     warn = "" if db_ok else "<p class='warn'>Live data is temporarily unavailable.</p>"
+    stale = ""
+    if stats_stale_hours:
+        stale = (f"<p class='stale'><strong>Team statistics are "
+                 f"{escape(str(stats_stale_hours))} hours old.</strong> The betting "
+                 f"board below is current; the team tables were last published "
+                 f"{escape(stats_updated_text)}.</p>")
     return f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -738,6 +834,9 @@ def _render_page(last7, ytd, betting, db_ok: bool) -> str:
   .badge.rlm {{ background:rgba(255,92,28,0.13); color:var(--odl-accent); border:1px solid rgba(255,92,28,0.33); margin-left:4px; }}
   .empty {{ color:var(--odl-text-muted); font-style:italic; padding:12px; }}
   .warn {{ color:var(--odl-signal-warn); }}
+  .stale {{ color:var(--odl-text-muted); border-left:3px solid var(--odl-signal-warn);
+    background:#17171B; padding:10px 14px; border-radius:6px; margin-bottom:16px; }}
+  .stale strong {{ color:var(--odl-text); }}
   footer {{ color:var(--odl-text-muted); text-align:center; padding:24px; font-size:12px; }}
   .tabs {{ display:flex; gap:8px; margin-bottom:12px; }}
   .tabs button {{ background:var(--odl-panel); color:var(--odl-text-muted); border:1px solid var(--odl-border); border-radius:6px; padding:6px 14px; cursor:pointer; font:inherit; transition:background 140ms ease-out,color 140ms ease-out,border-color 140ms ease-out; }}
@@ -751,6 +850,7 @@ def _render_page(last7, ytd, betting, db_ok: bool) -> str:
 </header>
 <main>
   {warn}
+  {stale}
   <section>
     <h2>Betting board</h2>
     <div class="scroll">{_betting_table(betting)}</div>

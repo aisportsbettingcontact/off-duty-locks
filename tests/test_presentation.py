@@ -371,8 +371,113 @@ def test_rankings_record_is_the_season_record_not_the_window_record():
     assert rows[0]["record"] == "19-11"
 
 
-def test_rankings_record_falls_back_to_the_shown_split_when_alone():
+def test_season_rows_use_their_own_record_when_told_they_are_the_season():
     rows = p.rankings_view(
         [{"team_name": "Indiana Fever", "offensive_rating": 113.5,
-          "wins": 19, "losses": 11}], [])
+          "wins": 19, "losses": 11}], [], primary_is_season=True)
     assert rows[0]["record"] == "19-11"
+
+
+def test_a_recent_window_alone_claims_no_season_record():
+    """An absent comparison must not license the window's own record.
+
+    Inferring "this must be the season split because no other was supplied" is
+    exactly how a 7-game 5-2 came to render where a 19-11 belonged.
+    """
+    rows = p.rankings_view(
+        [{"team_name": "Indiana Fever", "offensive_rating": 123.7,
+          "wins": 5, "losses": 2}], [])
+    assert rows[0]["record"] is None
+
+
+# --------------------------------------------------------------------------- #
+# slate timezone — the reference date must be the league's, not the server's
+# --------------------------------------------------------------------------- #
+
+def test_slate_today_resolves_in_league_time_not_utc():
+    """PRODUCTION REGRESSION (shipped 2026-08-07, live ~4h/night).
+
+    ``game_date`` is the ET slate date. Resolving "today" in UTC rolls the
+    reference forward at 20:00 ET — inside the tip-off window — so a slate that
+    had not started yet rendered under "Yesterday" every night from 8pm to
+    midnight ET.
+    """
+    import datetime as dt
+    # 00:30 UTC on Aug 8 IS 20:30 ET on Aug 7.
+    instant = dt.datetime(2026, 8, 8, 0, 30, tzinfo=dt.timezone.utc)
+    assert p.slate_today(instant) == dt.date(2026, 8, 7)
+    assert instant.date() == dt.date(2026, 8, 8)   # what the old code used
+
+
+# 00:00-03:59 UTC is 20:00-23:59 the PREVIOUS day in ET (EDT, UTC-4) — the
+# whole tip-off window, and exactly the span the old UTC pivot got wrong.
+@pytest.mark.parametrize("utc_hour", [0, 1, 2, 3])
+def test_evening_et_slate_is_today_not_yesterday(utc_hour):
+    import datetime as dt
+    instant = dt.datetime(2026, 8, 8, utc_hour, 30, tzinfo=dt.timezone.utc)
+    groups = p.group_by_date([{"game_key": "g", "game_date": "2026-08-07"}],
+                             today=p.slate_today(instant))
+    assert groups[0]["label"] == "Today"
+
+
+def test_the_day_flips_at_midnight_et_not_midnight_utc():
+    import datetime as dt
+    just_before = dt.datetime(2026, 8, 8, 3, 59, tzinfo=dt.timezone.utc)   # 23:59 ET Aug 7
+    just_after = dt.datetime(2026, 8, 8, 4, 1, tzinfo=dt.timezone.utc)     # 00:01 ET Aug 8
+    assert p.slate_today(just_before) == dt.date(2026, 8, 7)
+    assert p.slate_today(just_after) == dt.date(2026, 8, 8)
+
+
+def test_slate_today_still_correct_during_the_afternoon():
+    import datetime as dt
+    instant = dt.datetime(2026, 8, 7, 16, 30, tzinfo=dt.timezone.utc)  # 12:30pm ET
+    assert p.slate_today(instant) == dt.date(2026, 8, 7)
+
+
+# --------------------------------------------------------------------------- #
+# status — "Live" is a present-tense claim and must be checked against now
+# --------------------------------------------------------------------------- #
+
+import datetime as _d
+
+NOW = _d.datetime(2026, 8, 7, 12, 0, tzinfo=_d.timezone.utc)
+
+
+def test_recent_tipoff_still_reads_live():
+    assert p.status_label("inprogress", start_time=NOW - _d.timedelta(minutes=40),
+                          fetched_at=NOW - _d.timedelta(minutes=5), now=NOW) == "Live"
+
+
+def test_stale_inprogress_row_never_claims_live():
+    """PRODUCTION REGRESSION (shipped 2026-08-07).
+
+    2026-08-06:TOR@POR tipped at 02:00Z and still rendered a green "Live" badge
+    at 12:01Z — ten hours later. The feed had stopped updating that game.
+    """
+    label = p.status_label("inprogress",
+                           start_time=_d.datetime(2026, 8, 7, 2, 0, tzinfo=_d.timezone.utc),
+                           fetched_at=_d.datetime(2026, 8, 7, 3, 31, tzinfo=_d.timezone.utc),
+                           now=_d.datetime(2026, 8, 7, 12, 1, tzinfo=_d.timezone.utc))
+    assert label == p.STATUS_STALE_LABEL
+    assert label != "Live"
+
+
+def test_live_claim_needs_a_fresh_row_even_within_the_game_window():
+    assert p.status_label("inprogress", start_time=NOW - _d.timedelta(minutes=30),
+                          fetched_at=NOW - _d.timedelta(hours=3), now=NOW) == p.STATUS_STALE_LABEL
+
+
+def test_unverifiable_live_claim_is_not_made():
+    assert p.status_label("inprogress", None, None, now=NOW) == p.STATUS_STALE_LABEL
+
+
+def test_terminal_and_pregame_statuses_map_directly():
+    assert p.status_label("complete") == "Final"
+    assert p.status_label("postponed") == "Postponed"
+    assert p.status_label("scheduled") is None
+    assert p.status_label(None) is None
+    assert p.status_label("") is None
+
+
+def test_unknown_status_token_says_nothing_rather_than_echoing_the_feed():
+    assert p.status_label("weird_new_token") is None

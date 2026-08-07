@@ -194,19 +194,12 @@ jobs:
             echo "No \`x-railway-fallback\` header — the edge is routing to the app." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Data served by the live API
-        run: |
-          set -uo pipefail
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Rows served" >> "$GITHUB_STEP_SUMMARY"
-          for split in last7 ytd; do
-            body=$(curl -s --max-time 30 "${BASE}/api/team-stats?split=${split}" || echo "")
-            n=$(printf '%s' "$body" | python3 -c "import sys,json;print(len(json.load(sys.stdin).get('teams',[])))" 2>/dev/null || echo "n/a")
-            echo "- team-stats \`${split}\`: **${n}** teams" >> "$GITHUB_STEP_SUMMARY"
-          done
-          body=$(curl -s --max-time 30 "${BASE}/api/betting" || echo "")
-          n=$(printf '%s' "$body" | python3 -c "import sys,json;print(len(json.load(sys.stdin).get('games',[])))" 2>/dev/null || echo "n/a")
-          echo "- betting: **${n}** games" >> "$GITHUB_STEP_SUMMARY"
+      # An ASSERTION, not a report. The previous version wrote row counts into
+      # the step summary with `|| echo "n/a"` on every parse and gated only on
+      # HTTP 200 — it would have certified a 72-hour-stale production as
+      # healthy. A check that cannot fail is a green rubber stamp on a deploy.
+      - name: Live data is present and current
+        run: python3 .github/scripts/check_live_status.py "${BASE}" --summary "$GITHUB_STEP_SUMMARY"
 
       - name: Fail if any endpoint did not return 200
         if: ${{ steps.probe.outputs.probe_fail != '0' }}

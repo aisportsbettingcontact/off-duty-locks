@@ -58,6 +58,18 @@ RUN pip install --no-cache-dir -e . --no-deps --no-build-isolation
 # `x-railway-fallback: true`. If PORT *is* injected, gunicorn follows PORT.
 EXPOSE 3000
 
+# Drop root. Without a USER directive the serving process runs as uid 0 with
+# the editable package source writable at /app/src/wnba_pipeline, so any
+# file-write primitive becomes code execution on the next restart — as root,
+# with DATABASE_URL in the environment. Railway needs no privileged port (3000),
+# so nothing here requires uid 0.
+#
+# Ownership is set on /app rather than left to root: the editable install
+# already ran above, and gunicorn only needs to READ the tree.
+RUN useradd --system --uid 10001 --create-home --shell /usr/sbin/nologin odl \
+    && chown -R odl:odl /app
+USER odl
+
 # Default command: serve the site. This mirrors railway.toml's startCommand and
 # is the fallback if Railway ever runs the image default. Exec form (JSON) so
 # no shell is required: the bind port comes from os.environ["PORT"] inside

@@ -188,13 +188,5 @@ jobs:
               '',
               'See docs/runbook.md for triage.'
             ].join('\n');
-            const label = 'pipeline-alert';
-            const {owner, repo} = context.repo;
-            const existing = await github.rest.issues.listForRepo({
-              owner, repo, state: 'open', labels: label });
-            if (existing.data.length > 0) {
-              const n = existing.data[0].number;
-              await github.rest.issues.createComment({owner, repo, issue_number: n, body});
-            } else {
-              await github.rest.issues.create({owner, repo, title, body, labels: [label]});
-            }
+            const alert = require('./.github/scripts/pipeline-alert.js');
+            await alert({github, context}, {key: 'scrape', title, body});

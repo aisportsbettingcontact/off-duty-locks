@@ -70,6 +70,7 @@ BETTING_GAMES_COLUMNS: tuple[str, ...] = (
     "open_ml_away", "open_ml_home", "current_ml_away", "current_ml_home",
     "sharp_ml_away", "sharp_ml_home", "ml_pct_bets_away", "ml_pct_money_away", "ml_rlm",
     "public_book", "sharp_book", "an_game_id", "vsin_game_id", "fetched_at_utc",
+    "vsin_fetched_at_utc",
 )
 
 # The VSIN-derived columns. merge.py leaves every one of these None when the
@@ -86,6 +87,7 @@ VSIN_PRESERVE_COLUMNS: tuple[str, ...] = (
     "ml_pct_bets_away", "ml_pct_money_away",
     "sharp_spread", "sharp_total", "sharp_ml_away", "sharp_ml_home",
     "sharp_book", "spread_rlm", "total_rlm", "ml_rlm", "vsin_game_id",
+    "vsin_fetched_at_utc",
 )
 
 

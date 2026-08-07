@@ -1,0 +1,36 @@
+# Dependency updates.
+#
+# Both lockfiles are hash-pinned and never resolve at build time, which is
+# exactly why this file is needed: nothing in the repo ever moves a version, so
+# without a bot the app sits on whatever was current the day it was pinned. When
+# the next Werkzeug, Jinja or requests advisory lands, nothing fires.
+#
+# Grouped and monthly on purpose: every bump has to pass CI, and CI is the only
+# gate between a merge and production.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      python-runtime:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  # The workflows pin actions/* to mutable major tags. Those are GitHub-owned,
+  # but the repo setting `sha_pinning_required` is false, so a future
+  # third-party action would inherit the same treatment. Keeping the versions
+  # moving under review is the cheap half of that problem.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "chore(ci)"

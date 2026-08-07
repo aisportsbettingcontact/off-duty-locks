@@ -102,6 +102,11 @@ CREATE INDEX IF NOT EXISTS idx_betting_games_date ON betting_games (game_date);
 
 -- Append-only line-movement history: one row per game per scrape run.
 -- PK makes re-publishing the same fetch idempotent (DO NOTHING on conflict).
+-- Added after the table shipped: when VSIN last confirmed this row's splits
+-- and sharp line. ADD COLUMN IF NOT EXISTS is idempotent, so bootstrap_schema
+-- applies it at the next publish with no manual migration.
+ALTER TABLE betting_games ADD COLUMN IF NOT EXISTS vsin_fetched_at_utc TIMESTAMPTZ;
+
 CREATE TABLE IF NOT EXISTS betting_line_snapshots (
     game_key                TEXT        NOT NULL,
     captured_at_utc         TIMESTAMPTZ NOT NULL,

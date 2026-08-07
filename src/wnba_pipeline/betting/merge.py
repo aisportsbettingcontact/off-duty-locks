@@ -138,6 +138,10 @@ def merge_games(
 
         vsin_id = (circa.game_id if circa is not None
                    else dk.game_id if dk is not None else None)
+        # Advances ONLY when VSIN actually carried this game. A miss leaves it
+        # None, the upsert's COALESCE keeps the previous value, and the age of
+        # the preserved splits becomes visible instead of invisible.
+        vsin_seen_at = fetched_at_utc if (dk is not None or circa is not None) else None
         spread_move = line_move(a.dk_spread_away, a.open_spread_away)
         total_move = line_move(a.dk_total, a.open_total)
 
@@ -181,6 +185,7 @@ def merge_games(
                 an_game_id=str(a.game_id),
                 vsin_game_id=vsin_id,
                 fetched_at_utc=fetched_at_utc,
+                vsin_fetched_at_utc=vsin_seen_at,
             )
         )
     return out

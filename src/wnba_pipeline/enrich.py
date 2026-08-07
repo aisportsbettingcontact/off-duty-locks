@@ -87,16 +87,37 @@ def find_team_stats(
 def enrich_games(
     games: list[dict[str, Any]],
     stats_by_team_id: Mapping[str, Mapping[str, Any]],
+    season_by_team_id: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
+    """Both-side splits, Model v0 and signals for each game row.
+
+    ``season_by_team_id`` is the season split. When supplied, Model v0 blends
+    each team's offensive rating across the two windows (see ``model.FORM_WEIGHT``)
+    instead of trusting a short trailing window alone. Omitting it keeps the
+    pre-blend behaviour, so callers that only hold one split still work.
+    """
     by_name = stats_by_team_name(stats_by_team_id)
+    season_by_name = (stats_by_team_name(season_by_team_id)
+                      if season_by_team_id else {})
     out = []
     for game in games:
         g = with_both_sides(game)
+        away_recent = find_team_stats(
+            stats_by_team_id, by_name, g.get("away_team_id"), g.get("away_name"))
+        home_recent = find_team_stats(
+            stats_by_team_id, by_name, g.get("home_team_id"), g.get("home_name"))
+        away_season = home_season = None
+        if season_by_team_id:
+            away_season = find_team_stats(
+                season_by_team_id, season_by_name,
+                g.get("away_team_id"), g.get("away_name"))
+            home_season = find_team_stats(
+                season_by_team_id, season_by_name,
+                g.get("home_team_id"), g.get("home_name"))
         model = project_game(
-            find_team_stats(stats_by_team_id, by_name, g.get("away_team_id"), g.get("away_name")),
-            find_team_stats(stats_by_team_id, by_name, g.get("home_team_id"), g.get("home_name")),
-            g.get("current_spread"),
-            g.get("current_total"),
+            away_recent, home_recent,
+            g.get("current_spread"), g.get("current_total"),
+            away_season=away_season, home_season=home_season,
         )
         g["model"] = model
         g["signals"] = detect_signals(g, model)

@@ -1,5 +1,8 @@
 {% extends "_base.html" %}
-{% from "_game.html" import game_card %}
+{# `with context` is required: the macro reads {{ home_court }} from the
+   template context, and without it the magnitude renders empty —
+   "plus  points of home court" shipped to production nine times. #}
+{% from "_game.html" import game_card with context %}
 {% from "_rank.html" import rank_row, scale_note %}
 
 {% block title %}WNBA Research Dashboard · Off Duty Locks{% endblock %}
@@ -21,7 +24,18 @@
     returns.
   </span>
 </div>
-{% elif stats_stale_hours %}
+{% endif %}
+{% if db_ok and betting_stale_hours %}
+<div class="notice" role="status">
+  <span aria-hidden="true">■</span>
+  <span>
+    <span class="notice__title">The board has not refreshed for {{ betting_stale_hours }} hours.</span>
+    Lines, splits and signals below are as of that time, not as of now. The
+    odds feed publishes every 30 minutes when it is healthy.
+  </span>
+</div>
+{% endif %}
+{% if db_ok and stats_stale_hours %}
 <div class="notice" role="status">
   <span aria-hidden="true">■</span>
   <span>

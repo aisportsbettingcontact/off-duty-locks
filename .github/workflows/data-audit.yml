@@ -157,7 +157,13 @@ jobs:
         # means the audit COULD NOT RUN and proved nothing about the data.
         # The title/body must say which, or a dead DATABASE_URL reads as a
         # data corruption incident.
-        if: ${{ steps.before.outputs.exit_code != '0' }}
+        #
+        # failure() is load-bearing: with no status function GitHub implies
+        # success(), so a job that died at checkout, on a --require-hashes
+        # break, or on a rotated DATABASE_URL filed NO alert at all. extract.yml
+        # documents and fixes this same regression; this workflow was the one
+        # left broken, and it is the only check that reads production data.
+        if: ${{ failure() || steps.before.outputs.exit_code != '0' }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -177,16 +183,16 @@ jobs:
               '', '```', report, '```',
               '', 'See docs/runbook.md for triage. Repair runs only via workflow_dispatch (dry by default).'
             ].join('\n');
-            const label = 'pipeline-alert';
-            const {owner, repo} = context.repo;
-            const existing = await github.rest.issues.listForRepo({
-              owner, repo, state: 'open', labels: label });
-            if (existing.data.length > 0) {
-              const n = existing.data[0].number;
-              await github.rest.issues.createComment({owner, repo, issue_number: n, body});
-            } else {
-              await github.rest.issues.create({owner, repo, title, body, labels: [label]});
-            }
+            const alert = require('./.github/scripts/pipeline-alert.js');
+            await alert({github, context}, {key: 'data-audit', title, body});
+
+      - name: Resolve the alert on a clean audit
+        if: ${{ success() && steps.before.outputs.exit_code == '0' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const alert = require('./.github/scripts/pipeline-alert.js');
+            await alert({github, context}, {key: 'data-audit', resolved: true});
 
       - name: Fail the run on audit failure
         # Honest gate (repo law 3): inconsistent serving tables must show a red
