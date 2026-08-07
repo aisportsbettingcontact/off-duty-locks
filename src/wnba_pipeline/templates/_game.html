@@ -225,6 +225,14 @@
   <div class="game__meta">
     <span class="game__time">{{ game.time_text or game.date_text or 'Time TBD' }}</span>
     {% if game.status_text %}<span class="game__status">{{ game.status_text }}</span>{% endif %}
+    {# This card's own age, shown only when the feed has moved on without it —
+       a finished game stops being carried, so its numbers freeze while the
+       board around them stays live. #}
+    {% if game.stale_hours %}
+    <span class="game__status" title="This game's numbers have not refreshed with the rest of the board">
+      {{ game.stale_hours }}h old
+    </span>
+    {% endif %}
     <span class="sigs">
       {% for sig in game.signals[:3] %}{{ signal_chip(sig) }}{% endfor %}
       {% if game.signals | length > 3 %}

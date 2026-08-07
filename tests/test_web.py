@@ -519,18 +519,21 @@ def test_game_ids_are_dom_safe_and_deep_linkable(client, monkeypatch):
     assert 'aria-controls="analysis-2026-08-07-la-min"' in html
 
 
-def test_page_stamp_is_the_oldest_row_not_the_newest(client, monkeypatch):
-    """PRODUCTION DEFECT: max() let one refreshed game stamp the whole board.
+def test_an_old_row_never_reads_as_current(client, monkeypatch):
+    """The original defect: an 8-hour-old row rendering under a 6-minute-old
+    header, with nothing on the card to reveal it.
 
-    Live at 11:46Z the header read 11:30:52Z while three cards carried their own
-    fetched_at_utc of 03:31:58Z — an 8-hour-old row under a 6-minute-old stamp.
+    The header answers "is the feed alive?" and so takes the NEWEST stamp; the
+    per-card age is what stops the old row reading as current. Both halves are
+    asserted here, because fixing this with a pessimistic header instead
+    produced a false "board is stale" banner on a healthy board.
     """
-    old, new = "2026-08-07T03:31:58+00:00", "2026-08-07T12:01:51+00:00"
-    _slate(monkeypatch, games=[dict(GAME_ROW, game_key="a", fetched_at_utc=old),
-                               dict(GAME_ROW, game_key="b", fetched_at_utc=new)])
+    stale, fresh = "2026-08-07T03:31:58+00:00", "2026-08-07T12:01:51+00:00"
+    _slate(monkeypatch, games=[dict(GAME_ROW, game_key="a", fetched_at_utc=stale),
+                               dict(GAME_ROW, game_key="b", fetched_at_utc=fresh)])
     html = client.get("/").data.decode()
-    assert f'id="updated" data-iso="{old}"' in html
-    assert new not in html.split('id="updated"')[1][:120]
+    assert f'id="updated" data-iso="{fresh}"' in html      # feed liveness
+    assert "8h old" in html                                 # the card says so
 
 
 def test_a_stale_board_says_so(client, monkeypatch):
@@ -616,3 +619,45 @@ def test_betting_select_does_not_mask_a_real_database_failure(client, monkeypatc
     monkeypatch.setattr(web, "_OPTIONAL_BETTING_COLUMNS", ())
     with pytest.raises(RuntimeError, match="connection refused"):
         web.fetch_betting()
+
+
+def test_board_stamp_measures_feed_liveness_not_the_oldest_frozen_row(client, monkeypatch):
+    """PRODUCTION FALSE ALARM: a min() page stamp reported a healthy board as
+    17 hours stale.
+
+    Completed games stop being carried by Action Network, so their
+    fetched_at_utc freezes forever. Taking the minimum across the board made
+    one finished game speak for a feed that had delivered minutes earlier.
+    """
+    import datetime as dt
+    now = dt.datetime.now(dt.timezone.utc)
+    fresh = now.isoformat()
+    frozen = (now - dt.timedelta(hours=17)).isoformat()
+    _slate(monkeypatch, games=[
+        dict(GAME_ROW, game_key="done", status="complete", fetched_at_utc=frozen),
+        dict(GAME_ROW, game_key="live", fetched_at_utc=fresh),
+    ])
+    html = client.get("/").data.decode()
+    assert f'id="updated" data-iso="{fresh}"' in html
+    assert "has not refreshed for" not in html, "a live feed must not raise the banner"
+
+
+def test_a_frozen_card_still_declares_its_own_age(client, monkeypatch):
+    """The claim belongs on the CARD, not on the whole board."""
+    import datetime as dt
+    now = dt.datetime.now(dt.timezone.utc)
+    _slate(monkeypatch, games=[
+        dict(GAME_ROW, game_key="done", status="complete",
+             fetched_at_utc=(now - dt.timedelta(hours=17)).isoformat()),
+        dict(GAME_ROW, game_key="live", fetched_at_utc=now.isoformat()),
+    ])
+    html = client.get("/").data.decode()
+    assert "17h old" in html
+
+
+def test_a_genuinely_dead_feed_still_raises_the_banner(client, monkeypatch):
+    """The banner must keep working when nothing on the board is fresh."""
+    import datetime as dt
+    old = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=9)).isoformat()
+    _slate(monkeypatch, games=[dict(GAME_ROW, fetched_at_utc=old)])
+    assert "has not refreshed for" in client.get("/").data.decode()
