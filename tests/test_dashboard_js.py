@@ -79,12 +79,25 @@ def test_esc_helper_covers_all_five_entities():
 
 
 def test_confirmed_sinks_are_escaped():
+    """Every snapshot field that reaches innerHTML goes through esc().
+
+    The rankings table is server-rendered now, so its ``t.team_name`` sink no
+    longer exists in this file; the snapshot table grew the remaining ones.
+    Each is asserted positively (escaped form present) and negatively (raw form
+    absent), so removing an esc() fails here rather than shipping.
+    """
     src = DASHBOARD_JS.read_text(encoding="utf-8")
-    # The two sinks confirmed in review: rankings team_name, snapshot book.
-    assert "${esc(t.team_name)}" in src
-    assert "esc(s.public_book" in src
+    for field in ("public_book", "spread", "total", "ml_away", "ml_home"):
+        assert f"esc(s.{field}" in src, f"snapshot {field} reaches the DOM unescaped"
+        assert f"${{s.{field}" not in src, f"snapshot {field} interpolated raw"
+    # Timestamps are formatted before display; the formatter output is still
+    # data and still escaped.
+    assert "esc(fmtTime(s.captured_at_utc))" in src
+    assert "esc(fmtDay(s.captured_at_utc))" in src
+    assert "${fmtTime(" not in src
+    # The client no longer renders team names at all — if that ever returns,
+    # it must arrive escaped.
     assert "${t.team_name}" not in src
-    assert "${s.public_book" not in src
 
 
 def test_no_data_derived_interpolation_reaches_dom_unescaped():
@@ -166,7 +179,19 @@ def test_stamps_render_precision_graded_relative_time():
     assert '"updated"' in src and '"stats-updated"' in src
 
 
-def test_no_strict_30min_promise_in_copy():
+def test_no_cadence_promise_in_copy():
+    """User-facing copy must not promise a refresh cadence, or name a
+    scheduler that no longer runs the job.
+
+    History: the copy once said "every 30 minutes on game days", which GitHub's
+    best-effort `schedule` could not keep (measured gaps 30 min to 3.5 hours),
+    so it was softened to "as GitHub delivers them". The betting scrape moved
+    to a Railway cron service on 2026-08-04 and scrape.yml's schedule was
+    retired, which makes any GitHub attribution wrong too. The durable
+    invariant is that the interface describes WHEN data arrives relative to a
+    run, never how often the clock says it will.
+    """
     src = _src()
-    assert "every 30 minutes on game days" not in src
-    assert "as GitHub delivers them" in src
+    assert "every 30 minutes" not in src
+    assert "GitHub" not in src
+    assert "scrape run" in src

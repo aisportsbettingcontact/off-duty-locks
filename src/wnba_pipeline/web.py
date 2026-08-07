@@ -20,14 +20,17 @@ from __future__ import annotations
 
 import datetime as _dt
 import logging
+import re
 from decimal import Decimal
 from html import escape
-from typing import Any
+from typing import Any, Mapping
 
 from flask import Flask, jsonify, render_template, request
 
 from wnba_pipeline import db
-from wnba_pipeline.enrich import enrich_games, find_team_stats, stats_by_team_name
+from wnba_pipeline import presentation as pres
+from wnba_pipeline.enrich import (
+    enrich_games, find_team_stats, normalize_team_name, stats_by_team_name)
 from wnba_pipeline.model import HOME_COURT_POINTS
 
 logger = logging.getLogger("wnba_pipeline.web")
@@ -264,58 +267,47 @@ def api_game_history(game_key: str):
 # HTML dashboard
 # --------------------------------------------------------------------------- #
 
-def _dfmt(value: Any) -> str:
-    """Plain dashboard number: one decimal for floats, em-dash for missing.
-
-    Tolerates Jinja Undefined (a partial row never crashes the page)."""
-    if isinstance(value, bool):
-        return "—"
-    if isinstance(value, float):
-        return f"{value:.1f}"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, str):
-        return value
-    return "—"
 
 
-def _dsigned(value: Any) -> str:
-    """Signed line value (spreads, edges): +/- one decimal."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return "—"
-    return f"{value:+.1f}"
 
 
-def _dpct(value: Any) -> str:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return "—"
-    return f"{value}%"
 
 
-def _dml(value: Any) -> str:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return "—"
-    return f"+{value}" if value > 0 else str(value)
 
 
-def _ring_class(score: float) -> str:
-    if score >= 7.5:
-        return "hot"
-    if score >= 5.0:
-        return "warm"
-    return "cool"
 
 
 # ESPN CDN slugs for team logos (browser-side hotlink; not a pipeline request).
 ESPN_LOGO_SLUGS = {
     "ATL": "atl", "CHI": "chi", "CONN": "conn", "DAL": "dal", "GS": "gs",
     "IND": "ind", "LA": "la", "LAS": "lv", "LVA": "lv", "MIN": "min", "NY": "ny",
-    "PHX": "phx", "POR": "por", "SEA": "sea", "TOR": "tor", "WAS": "wsh",
+    "PHX": "phx", "POR": "por", "SEA": "sea", "TOR": "tor",
+    # Washington arrives as WSH from the betting feed and WAS from ESPN; both
+    # map to the same mark. Missing WSH left Washington logo-less in production.
+    "WAS": "wsh", "WSH": "wsh",
+    "GSV": "gs", "CON": "conn", "LV": "lv", "NYL": "ny", "PHO": "phx",
 }
 
 
 def _logo_url(abbr: Any) -> str | None:
     slug = ESPN_LOGO_SLUGS.get(str(abbr or "").upper())
+    return f"https://a.espncdn.com/i/teamlogos/wnba/500/{slug}.png" if slug else None
+
+
+# The rankings feed carries full team names, not the betting feed's
+# abbreviations, so logos there resolve by name. Explicit pairs only — a
+# guessed slug would render another team's mark.
+TEAM_NAME_SLUGS = {
+    "atlanta dream": "atl", "chicago sky": "chi", "connecticut sun": "conn",
+    "dallas wings": "dal", "golden state valkyries": "gs", "indiana fever": "ind",
+    "los angeles sparks": "la", "las vegas aces": "lv", "minnesota lynx": "min",
+    "new york liberty": "ny", "phoenix mercury": "phx", "portland fire": "por",
+    "seattle storm": "sea", "toronto tempo": "tor", "washington mystics": "wsh",
+}
+
+
+def _logo_for_name(team_name: Any) -> str | None:
+    slug = TEAM_NAME_SLUGS.get(str(team_name or "").strip().lower())
     return f"https://a.espncdn.com/i/teamlogos/wnba/500/{slug}.png" if slug else None
 
 
@@ -338,49 +330,293 @@ def _split_team_name(full_name: Any, nickname: Any) -> tuple[str, str]:
     return "", nick
 
 
+_NON_SLUG = re.compile(r"[^a-z0-9]+")
+
+
+def _slug(value: Any) -> str:
+    """A game key as a DOM-id fragment: ``2026-08-06:LA@MIN`` -> ``2026-08-06-la-min``."""
+    return _NON_SLUG.sub("-", str(value or "").lower()).strip("-")
+
+
+def _et_time(start_time: Any, game_date: Any) -> str | None:
+    """Tip-off as Eastern clock time.
+
+    The whole league schedules in ET, so ET is the one label that never asks a
+    reader to convert. Falls back to UTC (explicitly labelled) if the platform
+    has no zone database, and to nothing at all when there is no timestamp —
+    never an invented time.
+    """
+    if start_time is None:
+        return None
+    moment = start_time
+    if isinstance(moment, str):
+        try:
+            moment = _dt.datetime.fromisoformat(moment)
+        except ValueError:
+            return None
+    if not isinstance(moment, _dt.datetime):
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=_dt.timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+
+        local = moment.astimezone(ZoneInfo("America/New_York"))
+        suffix = "ET"
+    except Exception:  # noqa: BLE001 - no tzdata: say UTC rather than mislabel
+        local = moment.astimezone(_dt.timezone.utc)
+        suffix = "UTC"
+    hour = local.hour % 12 or 12
+    return f"{hour}:{local.minute:02d} {'AM' if local.hour < 12 else 'PM'} {suffix}"
+
+
+def _age_hours(iso: Any) -> float | None:
+    """Whole hours since an ISO timestamp, or None if it is unusable."""
+    if not iso:
+        return None
+    try:
+        moment = _dt.datetime.fromisoformat(str(iso))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=_dt.timezone.utc)
+    delta = _dt.datetime.now(_dt.timezone.utc) - moment
+    return delta.total_seconds() / 3600.0
+
+
+# Team statistics refresh daily; past this the dashboard says so out loud
+# rather than letting a dated projection read as current.
+STATS_STALE_AFTER_HOURS = 24.0
+
+
+# Display copy for the betting feed's raw status tokens.
+STATUS_LABELS = {"complete": "Final", "inprogress": "Live"}
+_FINAL_STATUSES = {"complete", "final"}
+
+
+def _team_view(game: Mapping[str, Any], side: str,
+               stats_row: Mapping[str, Any] | None,
+               season_row: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """One team's display identity.
+
+    The record comes from the SEASON split, never from last-7: the last-7 row's
+    wins/losses count only the games inside that window, so Los Angeles read
+    "1-6" on a team that is 11-17 on the season.
+    """
+    row = stats_row or {}
+    abbr = game.get(f"{side}_abbr")
+    city, nick = _split_team_name(row.get("team_name"), game.get(f"{side}_name"))
+    record_row = season_row if season_row is not None else row
+    wins, losses = record_row.get("wins"), record_row.get("losses")
+    return {
+        "abbr": abbr,
+        "city": city,
+        "nick": nick,
+        "full": row.get("team_name") or game.get(f"{side}_name"),
+        "short": nick or abbr or "team",
+        "record": f"{wins}-{losses}" if wins is not None and losses is not None else None,
+        "logo": _logo_url(abbr),
+    }
+
+
+def build_game_views(games: list[dict[str, Any]],
+                     stats: Mapping[str, Mapping[str, Any]],
+                     season_rows: list[dict[str, Any]] | None = None
+                     ) -> list[dict[str, Any]]:
+    """Enriched game rows -> everything the game component renders.
+
+    All display derivation lives in ``presentation`` (pure and tested); this
+    only joins team stats and assembles. Same id-first / name-fallback join as
+    ``enrich_games``: betting rows carry Action Network ids, ``team_stats``
+    carries stats.wnba.com ids (see enrich.py).
+    """
+    by_name = stats_by_team_name(stats)
+    season_by_name = {normalize_team_name(r.get("team_name")): r
+                      for r in (season_rows or [])}
+
+    def _season_for(row: Mapping[str, Any] | None, fallback_name: Any):
+        name = (row or {}).get("team_name") or fallback_name
+        return season_by_name.get(normalize_team_name(name))
+
+    views = []
+    for game in games:
+        away_stats = find_team_stats(
+            stats, by_name, game.get("away_team_id"), game.get("away_name"))
+        home_stats = find_team_stats(
+            stats, by_name, game.get("home_team_id"), game.get("home_name"))
+        away = _team_view(game, "away", away_stats,
+                          _season_for(away_stats, game.get("away_name")))
+        home = _team_view(game, "home", home_stats,
+                          _season_for(home_stats, game.get("home_name")))
+        away_abbr, home_abbr = away["abbr"], home["abbr"]
+
+        spread_away, spread_home = pres.spread_sides(game.get("current_spread"))
+        total_over, total_under = pres.total_sides(game.get("current_total"))
+        ml_away, ml_home = pres.moneyline_sides(
+            game.get("current_ml_away"), game.get("current_ml_home"))
+
+        movement = {
+            "spread": pres.line_movement("spread", game.get("open_spread"),
+                                         game.get("current_spread"),
+                                         away_abbr, home_abbr),
+            "total": pres.line_movement("total", game.get("open_total"),
+                                        game.get("current_total"),
+                                        away_abbr, home_abbr),
+        }
+        open_away, _ = pres.spread_sides(game.get("open_spread"))
+        sharp_away, _ = pres.spread_sides(game.get("sharp_spread"))
+        movement_rows = [
+            row for row in (
+                {"label": "Open", "value": open_away},
+                {"label": "Current", "value": spread_away},
+                {"label": "Sharp", "value": sharp_away},
+            ) if row["value"]
+        ]
+
+        books = " · ".join(
+            part for part in (
+                f"Public {game['public_book']}" if game.get("public_book") else None,
+                f"Sharp {game['sharp_book']}" if game.get("sharp_book") else None,
+            ) if part
+        )
+
+        views.append({
+            "key": game.get("game_key"),
+            "slug": _slug(game.get("game_key")),
+            "game_date": game.get("game_date"),
+            "time_text": _et_time(game.get("start_time"), game.get("game_date")),
+            "date_text": str(game.get("game_date") or "") or None,
+            "status_text": STATUS_LABELS.get(str(game.get("status") or "").lower()),
+            "is_final": str(game.get("status") or "").lower() in _FINAL_STATUSES,
+            "away": away,
+            "home": home,
+            "markets": {
+                "spread_away": spread_away, "spread_home": spread_home,
+                "total_over": total_over, "total_under": total_under,
+                "ml_away": ml_away, "ml_home": ml_home,
+            },
+            "movement": movement,
+            "movement_rows": movement_rows,
+            "splits": pres.split_blocks(game, away_abbr, home_abbr),
+            "model": pres.model_view(game.get("model"), game.get("current_spread"),
+                                     game.get("current_total"), away_abbr, home_abbr),
+            "signals": pres.describe_signals(game.get("signals") or [], game,
+                                             away_abbr, home_abbr),
+            "books": books or None,
+        })
+    return views
+
+
+def _stats_freshness(db_ok: bool) -> tuple[str, float | None, str]:
+    """``(iso, stale_hours, human_time)`` for the team-statistics feed.
+
+    The iso is the OLDER of the two splits, so the page never claims more
+    freshness than its stalest visible split. Isolated failure: a broken stamp
+    query blanks the stamp, it does not take down a page whose data already
+    loaded.
+    """
+    if not db_ok:
+        return "", None, ""
+    try:
+        counts = fetch_status_counts()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("status query failed: %s", exc)
+        return "", None, ""
+    iso = _older_iso(counts.get("last7_updated_at"), counts.get("ytd_updated_at"))
+    age = _age_hours(iso)
+    stale = round(age) if age is not None and age >= STATS_STALE_AFTER_HOURS else None
+    human = ""
+    if iso:
+        try:
+            human = _dt.datetime.fromisoformat(iso).strftime("%B %-d at %H:%M UTC")
+        except ValueError:
+            human = iso
+    return iso, stale, human
+
+
 @app.get("/")
 def index():
-    """The research dashboard (design spec 2026-08-02; brand law MASTER.md)."""
+    """The research dashboard (brand law: design-system/off-duty-locks/MASTER.md)."""
     db_ok = True
     games: list[dict[str, Any]] = []
-    rankings: list[dict[str, Any]] = []
+    last7: list[dict[str, Any]] = []
+    ytd: list[dict[str, Any]] = []
     stats: dict[str, dict[str, Any]] = {}
     try:
         stats = fetch_stats_by_team("last7")
         games = enrich_games(fetch_betting(), stats)
-        rankings = fetch_team_stats("last7")
+        last7 = fetch_team_stats("last7")
+        ytd = fetch_team_stats("ytd")
     except Exception as exc:  # noqa: BLE001 - render an empty state, not a 500
         logger.warning("dashboard queries failed: %s", exc)
         db_ok = False
-    # Same id-first / name-fallback join as enrich_games: betting rows carry
-    # AN team ids, team_stats carries stats.wnba.com ids (see enrich.py).
-    stats_names = stats_by_team_name(stats)
-    for g in games:
-        for side in ("away", "home"):
-            row = find_team_stats(
-                stats, stats_names, g.get(f"{side}_team_id"), g.get(f"{side}_name")
-            ) or {}
-            city, nick = _split_team_name(row.get("team_name"), g.get(f"{side}_name"))
-            g[f"{side}_city"], g[f"{side}_nick"] = city, nick
+
+    views = build_game_views(games, stats, ytd)
+    groups = pres.group_by_date(views)
+    ranked, scale = pres.rankings_view_with_scale(last7, ytd)
+    for row in ranked:
+        row["logo"] = _logo_for_name(row.get("team_name"))
+
     updated = max((str(g.get("fetched_at_utc") or "") for g in games), default="")
-    # Stats stamp: the OLDER of the two splits' max updated_at, so the page
-    # never claims more freshness than its stalest visible split. Isolated
-    # try — a failed stamp query blanks the stamp, it does not take down a
-    # page whose data queries already succeeded.
-    stats_updated = ""
-    if db_ok:
-        try:
-            counts = fetch_status_counts()
-            stats_updated = _older_iso(
-                counts.get("last7_updated_at"), counts.get("ytd_updated_at"))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("status query failed: %s", exc)
+    stats_iso, stale_hours, stats_human = _stats_freshness(db_ok)
+
     return render_template(
         "dashboard.html",
-        games=games, rankings=rankings, db_ok=db_ok,
-        updated_at=updated, stats_updated_at=stats_updated,
+        page="dashboard",
+        groups=groups,
+        game_count=len(views),
+        rankings=ranked[:5],
+        scale=scale,
+        db_ok=db_ok,
+        updated_at=updated,
+        freshness_label="Markets updated",
+        stats_updated_at=stats_iso,
+        stats_stale_hours=stale_hours,
+        stats_updated_text=stats_human,
         home_court=HOME_COURT_POINTS,
-        fmt=_dfmt, sfmt=_dsigned, pct=_dpct, ml=_dml, ring_class=_ring_class, logo=_logo_url,
+    )
+
+
+@app.get("/rankings")
+def rankings():
+    """Offensive power rankings — the comparative team-performance view."""
+    split = request.args.get("split", "last7")
+    if split not in VALID_SPLITS:
+        split = "last7"
+    other = "ytd" if split == "last7" else "last7"
+
+    db_ok = True
+    primary: list[dict[str, Any]] = []
+    comparison: list[dict[str, Any]] = []
+    try:
+        primary = fetch_team_stats(split)
+        comparison = fetch_team_stats(other)
+    except Exception as exc:  # noqa: BLE001 - empty state, never a 500
+        logger.warning("rankings queries failed: %s", exc)
+        db_ok = False
+
+    # Form always reads "this window vs the season", whichever window is shown;
+    # on the season view the two are the same split, so no form is derivable.
+    ranked, scale = pres.rankings_view_with_scale(
+        primary, comparison if split == "last7" else [])
+    for row in ranked:
+        row["logo"] = _logo_for_name(row.get("team_name"))
+
+    stats_iso, stale_hours, stats_human = _stats_freshness(db_ok)
+    return render_template(
+        "rankings.html",
+        page="rankings",
+        split=split,
+        split_label="last-7" if split == "last7" else "season",
+        split_heading="Last 7 Games" if split == "last7" else "Season",
+        rankings=ranked,
+        scale=scale,
+        db_ok=db_ok,
+        updated_at=stats_iso,
+        freshness_label="Statistics as of",
+        stats_updated_at=stats_iso,
+        stats_stale_hours=stale_hours,
+        stats_updated_text=stats_human,
     )
 
 

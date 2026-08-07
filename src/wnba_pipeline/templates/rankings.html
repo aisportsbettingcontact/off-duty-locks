@@ -1,0 +1,92 @@
+{% extends "_base.html" %}
+{% from "_rank.html" import rank_row, scale_note %}
+
+{% block title %}Offensive Power Rankings · Off Duty Locks{% endblock %}
+{% block description %}WNBA offensive power rankings from verified team statistics — last 7 games and season, with recent-form comparison.{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Offensive Power Rankings</h1>
+  <p>Teams ranked by offensive rating — points scored per 100 possessions —
+     from the same verified statistics the model runs on. Offense only: these
+     rankings carry no defensive measure.</p>
+</div>
+
+{% if not db_ok %}
+<div class="notice notice--error" role="status">
+  <span aria-hidden="true">■</span>
+  <span>
+    <span class="notice__title">Live data is unavailable.</span>
+    The database could not be reached, so rankings cannot be shown.
+  </span>
+</div>
+{% elif stats_stale_hours %}
+<div class="notice" role="status">
+  <span aria-hidden="true">■</span>
+  <span>
+    <span class="notice__title">These statistics are {{ stats_stale_hours }} hours old.</span>
+    The team-statistics feed last published {{ stats_updated_text }}. Rankings
+    are accurate as of that time, not as of now.
+  </span>
+</div>
+{% endif %}
+
+<section class="section" aria-labelledby="ranks-h">
+  <div class="section__head">
+    <h2 id="ranks-h">{{ split_heading }}</h2>
+    <span class="section__spacer"></span>
+    {# Real links, not scripted tabs: each window is its own URL, so the split
+       is shareable, survives the back button, and renders without JavaScript. #}
+    <nav class="seg" aria-label="Statistics window">
+      <a href="/rankings?split=last7" class="{{ 'is-active' if split == 'last7' }}"
+         {% if split == 'last7' %}aria-current="page"{% endif %}>Last 7 games</a>
+      <a href="/rankings?split=ytd" class="{{ 'is-active' if split == 'ytd' }}"
+         {% if split == 'ytd' %}aria-current="page"{% endif %}>Season</a>
+    </nav>
+  </div>
+
+  <p class="stamp" id="stats-updated" data-iso="{{ stats_updated_at }}" data-label="Statistics as of"></p>
+
+  <div class="ranks" id="ranks-list" data-split="{{ split }}">
+    {% if rankings %}
+      {% for row in rankings %}{{ rank_row(row) }}{% endfor %}
+    {% else %}
+      <div class="empty">
+        <p class="empty__title">No rankings published yet</p>
+        <p>Team statistics have not been published for this window.</p>
+      </div>
+    {% endif %}
+  </div>
+
+  {{ scale_note(scale, split_label) }}
+</section>
+
+{% if rankings %}
+<section class="section">
+  <div class="section__head">
+    <h2>Reading these numbers</h2>
+  </div>
+  <div class="panelgrid">
+    <div class="block">
+      <h3 class="label" style="margin-bottom: var(--space-2)">Offensive rating</h3>
+      <p class="muted">Points scored per 100 possessions, computed as
+      points ÷ possessions × 100, where possessions = FGA − OREB + TOV +
+      0.44 × FTA. It measures scoring efficiency, not overall team strength.</p>
+    </div>
+    <div class="block">
+      <h3 class="label" style="margin-bottom: var(--space-2)">Recent form</h3>
+      <p class="muted">The difference between a team's last-7 offensive rating
+      and its season rating. Positive means the team has scored more
+      efficiently lately than it has all year. Compare it against the league
+      figure in the note above — form moves league-wide, not just per team.</p>
+    </div>
+    <div class="block">
+      <h3 class="label" style="margin-bottom: var(--space-2)">Pace</h3>
+      <p class="muted">Estimated possessions per game. High pace raises both
+      teams' point totals without implying either is more efficient, which is
+      why the total and the rating are read together.</p>
+    </div>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
