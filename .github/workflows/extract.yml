@@ -135,7 +135,7 @@ jobs:
       # success() and an infra-red run would file no alert at all.
       - name: Alert on failure
         if: ${{ failure() || steps.extract.outputs.exit_code != '0' || steps.validate.outputs.exit_code != '0' }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -160,7 +160,7 @@ jobs:
       # comment, which is how one 2026-07-21 issue absorbed 17 alerts.
       - name: Resolve the alert on success
         if: ${{ success() && steps.extract.outputs.exit_code == '0' && steps.validate.outputs.exit_code == '0' }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const alert = require('./.github/scripts/pipeline-alert.js');
