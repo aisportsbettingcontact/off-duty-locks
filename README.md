@@ -8,10 +8,10 @@ Team stats are sourced from **ESPN's public JSON APIs** (owner decision
 2026-08-04; `docs/compliance.md` section "ESPN" governs budgets):
 
 - **`ytd`** — season statistics + W-L record per team
-  (`sports.core.api.espn.com` season statistics, `site.api.espn.com` team
+  (`sports.core.api.espn.com` season statistics, `site.web.api.espn.com` team
   record), cross-checked against the schedule's completed-game count;
 - **`last7`** — each team's last 7 completed regular-season games, aggregated
-  from per-event box scores (`site.api.espn.com/…/summary`), minutes derived
+  from per-event box scores (`site.web.api.espn.com/…/summary`), minutes derived
   from game length (40 + 5·OT).
 
 Rows publish under the canonical team ids via a name crosswalk, so the rest of

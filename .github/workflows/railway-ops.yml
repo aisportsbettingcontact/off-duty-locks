@@ -20,9 +20,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "diagnose (read-only) or fix"
+        description: "diagnose (read-only), fix, or token-scope (blast-radius survey)"
         type: choice
-        options: ["diagnose", "fix"]
+        options: ["diagnose", "fix", "token-scope"]
         required: false
         default: "diagnose"
       apply:

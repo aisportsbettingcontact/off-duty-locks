@@ -54,6 +54,11 @@ on:
         description: "Split it must be identical to for removal"
         required: false
         default: "last7"
+      repair_odds:
+        description: "Also run repair-odds (NULL impossible stored moneylines)"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -123,8 +128,29 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: "Repair — NULL impossible stored moneylines"
+        if: ${{ inputs.repair_odds }}
+        id: repair_odds
+        run: |
+          set -uo pipefail
+          ARGS=""
+          if [ "${{ inputs.apply }}" = "true" ]; then ARGS="--yes"; fi
+          echo "running: wnba-pipeline repair-odds $ARGS"
+          set +e
+          wnba-pipeline repair-odds $ARGS | tee /tmp/repair-odds.txt
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          {
+            echo ""
+            echo "## Repair — odds"
+            echo ""
+            echo '```'
+            cat /tmp/repair-odds.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: "Validate — after"
-        if: ${{ inputs.repair && inputs.apply }}
+        if: ${{ (inputs.repair || inputs.repair_odds) && inputs.apply }}
         run: |
           set -uo pipefail
           set +e

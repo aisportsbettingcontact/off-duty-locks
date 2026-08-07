@@ -120,6 +120,7 @@ def slate_floor() -> _dt.date:
 # the site serves correctly either side of the migration, and the fallback stops
 # being exercised as soon as one publish has run.
 _OPTIONAL_BETTING_COLUMNS = ("vsin_fetched_at_utc",)
+_OPTIONAL_SNAPSHOT_COLUMNS = ("model_spread", "model_total", "edge_score", "signals")
 
 
 def fetch_betting() -> list[dict[str, Any]]:
@@ -207,11 +208,26 @@ def fetch_line_history(game_key: str) -> dict[str, Any] | None:
     )
     if not opening:
         return None
-    cols = ", ".join(db.SNAPSHOT_COLUMNS)
-    snapshots = _rows(
-        f"SELECT {cols} FROM betting_line_snapshots "
-        "WHERE game_key = %s ORDER BY captured_at_utc", (game_key,),
-    )
+    def _snaps(columns: tuple[str, ...]) -> list[dict[str, Any]]:
+        return _rows(
+            f"SELECT {', '.join(columns)} FROM betting_line_snapshots "
+            "WHERE game_key = %s ORDER BY captured_at_utc", (game_key,),
+        )
+
+    # Same deploy-order tolerance as fetch_betting: the model columns are
+    # created by the WRITE path's bootstrap, so between a web deploy and the
+    # next scrape tick they may not exist yet.
+    try:
+        snapshots = _snaps(db.SNAPSHOT_COLUMNS)
+    except Exception as exc:  # noqa: BLE001 - narrowed by the retry below
+        legacy = tuple(c for c in db.SNAPSHOT_COLUMNS
+                       if c not in _OPTIONAL_SNAPSHOT_COLUMNS)
+        if len(legacy) == len(db.SNAPSHOT_COLUMNS):
+            raise
+        logger.warning(
+            "snapshot select failed (%s); retrying without %s — the schema "
+            "migration has not run yet", exc, _OPTIONAL_SNAPSHOT_COLUMNS)
+        snapshots = _snaps(legacy)
     return {"game_key": game_key, "opening": opening[0], "snapshots": snapshots}
 
 

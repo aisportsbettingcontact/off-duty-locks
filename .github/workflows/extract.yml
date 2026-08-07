@@ -9,7 +9,7 @@ name: Extract
 # residentially, and a real Chromium session all stall. That access stays
 # PARKED (docs/compliance.md section 1 records the owner sign-off and the
 # 4-way reachability evidence). Per owner decision 2026-08-04 the source is
-# now ESPN (site.api.espn.com + sports.core.api.espn.com), which serves
+# now ESPN (site.web.api.espn.com + sports.core.api.espn.com), which serves
 # datacenter IPs — so this runs on ubuntu-latest by design, and the daily
 # cron is restored. docs/compliance.md section "ESPN" governs request budgets
 # (1 scheduled run/day, <= ~160 requests/run worst case, honest UA,

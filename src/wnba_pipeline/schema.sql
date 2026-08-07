@@ -107,6 +107,16 @@ CREATE INDEX IF NOT EXISTS idx_betting_games_date ON betting_games (game_date);
 -- applies it at the next publish with no manual migration.
 ALTER TABLE betting_games ADD COLUMN IF NOT EXISTS vsin_fetched_at_utc TIMESTAMPTZ;
 
+-- Model-as-of-capture, added after the table shipped. team_stats is
+-- overwrite-in-place, so the inputs Model v0 saw at capture time cannot be
+-- reconstructed later — persisting the output here is what makes outcome
+-- grading against history possible. signals is a compact JSON array of the
+-- fired signal objects.
+ALTER TABLE betting_line_snapshots ADD COLUMN IF NOT EXISTS model_spread DOUBLE PRECISION;
+ALTER TABLE betting_line_snapshots ADD COLUMN IF NOT EXISTS model_total DOUBLE PRECISION;
+ALTER TABLE betting_line_snapshots ADD COLUMN IF NOT EXISTS edge_score DOUBLE PRECISION;
+ALTER TABLE betting_line_snapshots ADD COLUMN IF NOT EXISTS signals TEXT;
+
 CREATE TABLE IF NOT EXISTS betting_line_snapshots (
     game_key                TEXT        NOT NULL,
     captured_at_utc         TIMESTAMPTZ NOT NULL,
